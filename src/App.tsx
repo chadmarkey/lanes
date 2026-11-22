@@ -45,7 +45,7 @@ import {
   settleViewIds,
   toggleThemeMode,
 } from './lib/workbench';
-import { BotsView } from './components/BotsView';
+import { BotsView, type CreateBotPayload } from './components/BotsView';
 import { Breadcrumbs } from './components/Breadcrumbs';
 import { DesignStudioView, type StudioTab } from './components/DesignStudioView';
 import { HomeView } from './components/HomeView';
@@ -153,6 +153,7 @@ export function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickAskOpen, setQuickAskOpen] = useState(false);
   const [newLaneOpen, setNewLaneOpen] = useState(false);
+  const [botCreateTick, setBotCreateTick] = useState(0);
   const [sending, setSending] = useState(false);
   const [pendingKeys, setPendingKeys] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<{ message: string; tone: 'info' | 'error' } | null>(null);
@@ -256,11 +257,11 @@ export function App() {
     void fetchWorkspace();
   }, [fetchWorkspace]);
 
-  async function apiPost(url: string, body: unknown, method: 'POST' | 'PATCH' = 'POST') {
+  async function apiPost(url: string, body: unknown, method: 'POST' | 'PATCH' | 'DELETE' = 'POST') {
     const res = await fetch(resolveApiUrl(url), {
       method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: method === 'DELETE' ? undefined : { 'Content-Type': 'application/json' },
+      body: method === 'DELETE' ? undefined : JSON.stringify(body),
     });
     const data = await readJsonSafe<Record<string, any>>(res);
     if (!res.ok) {
@@ -423,6 +424,9 @@ export function App() {
     icon: Lane['icon'];
     isPrivate: boolean;
     approvalMode: ApprovalMode;
+    defaultAgentId?: AgentId;
+    instructions?: string;
+    enabledPlugins?: string[];
   }): Promise<boolean> {
     const data = await runPending('create-lane', () => apiPost('/api/lanes', payload));
     if (!data) return false;
@@ -442,6 +446,28 @@ export function App() {
     if (!data) return false;
     showToast('Saved lane settings');
     return true;
+  }
+
+  async function handleDeleteLane(laneId: string): Promise<boolean> {
+    const data = await runPending(`lane-delete:${laneId}`, () =>
+      apiPost(`/api/lanes/${encodeURIComponent(laneId)}`, {}, 'DELETE')
+    );
+    if (!data) return false;
+    if (activeLaneId === laneId) {
+      const nextLane = (data.state?.lanes as Lane[] | undefined)?.[0];
+      setActiveLaneId(nextLane?.id ?? null);
+      setActiveBranchId(null);
+      if (!nextLane) setPlace('home');
+    }
+    showToast('Deleted lane');
+    return true;
+  }
+
+  async function handleToggleLanePlugin(laneId: string, pluginId: string): Promise<boolean> {
+    const data = await runPending(`lane-plugin:${laneId}:${pluginId}`, () =>
+      apiPost(`/api/lanes/${encodeURIComponent(laneId)}/plugins`, { pluginId })
+    );
+    return Boolean(data);
   }
 
   async function handleCreateBranch(title: string, agentId: AgentId, prompt: string): Promise<boolean> {
@@ -516,6 +542,47 @@ export function App() {
     return true;
   }
 
+  async function handleCreateBot(payload: CreateBotPayload): Promise<boolean> {
+    const data = await runPending('create-bot', () => apiPost('/api/bots', payload));
+    if (!data) return false;
+    if (data.bot?.id) {
+      setActiveBotId(data.bot.id);
+      setPlace('bots');
+      showToast(`Created bot ${data.bot.name}`);
+    }
+    return true;
+  }
+
+  async function handleUpdateBot(
+    botId: string,
+    patch: Partial<Pick<import('./lib/types').Bot, 'name' | 'job' | 'agentId' | 'instructions' | 'morningSuggestions' | 'enabledPlugins'>>
+  ): Promise<boolean> {
+    const data = await runPending(`bot-update:${botId}`, () =>
+      apiPost(`/api/bots/${encodeURIComponent(botId)}`, patch, 'PATCH')
+    );
+    if (!data) return false;
+    showToast('Updated bot');
+    return true;
+  }
+
+  async function handleDeleteBot(botId: string): Promise<boolean> {
+    const data = await runPending(`bot-delete:${botId}`, () =>
+      apiPost(`/api/bots/${encodeURIComponent(botId)}`, {}, 'DELETE')
+    );
+    if (!data) return false;
+    const remaining = data.state?.bots as { id: string }[] | undefined;
+    setActiveBotId(remaining?.[0]?.id ?? null);
+    showToast('Deleted bot');
+    return true;
+  }
+
+  async function handleToggleBotPlugin(botId: string, pluginId: string): Promise<boolean> {
+    const data = await runPending(`bot-plugin:${botId}:${pluginId}`, () =>
+      apiPost(`/api/bots/${encodeURIComponent(botId)}/plugins`, { pluginId })
+    );
+    return Boolean(data);
+  }
+
   async function handleToggleBotLane(botId: string, laneId: string): Promise<boolean> {
     const data = await runPending(`bot-lane:${botId}:${laneId}`, () =>
       apiPost(`/api/bots/${encodeURIComponent(botId)}/lanes`, { laneId })
@@ -565,13 +632,36 @@ export function App() {
 
   async function handleAddFile(payload: {
     name: string;
+    folder?: string;
     laneId: string;
     kind: LibraryItem['kind'];
     preview: string;
+    size?: string;
   }): Promise<boolean> {
     const data = await runPending('add-file', () => apiPost('/api/library', payload));
     if (!data) return false;
     showToast(`Saved ${payload.name}`);
+    return true;
+  }
+
+  async function handleUpdateFile(
+    itemId: string,
+    patch: Partial<Pick<LibraryItem, 'name' | 'folder' | 'laneId' | 'kind' | 'preview'>>
+  ): Promise<boolean> {
+    const data = await runPending(`file-update:${itemId}`, () =>
+      apiPost(`/api/library/${encodeURIComponent(itemId)}`, patch, 'PATCH')
+    );
+    if (!data) return false;
+    showToast('Saved file changes');
+    return true;
+  }
+
+  async function handleDeleteFile(itemId: string): Promise<boolean> {
+    const data = await runPending(`file-delete:${itemId}`, () =>
+      apiPost(`/api/library/${encodeURIComponent(itemId)}`, {}, 'DELETE')
+    );
+    if (!data) return false;
+    showToast('Deleted file');
     return true;
   }
 
@@ -694,6 +784,10 @@ export function App() {
         }}
         onOpenQuickAsk={() => setQuickAskOpen(true)}
         onOpenNewLane={() => setNewLaneOpen(true)}
+        onOpenNewBot={() => {
+          setPlace('bots');
+          setBotCreateTick((t) => t + 1);
+        }}
         onOpenCustomizeRail={() => {
           setStudioTab('appearance');
           setPlace('studio');
@@ -804,6 +898,10 @@ export function App() {
                   onResolveDecision={handleResolveDecision}
                   onMergeBranch={handleMergeBranch}
                   onUpdateLane={handleUpdateLane}
+                  onDeleteLane={handleDeleteLane}
+                  onToggleLanePlugin={handleToggleLanePlugin}
+                  laneFiles={workspace.library.filter((f) => f.laneId === activeLane?.id)}
+                  onOpenLibrary={() => setPlace('library')}
                   onNotify={showToast}
                 />
               )}
@@ -867,8 +965,13 @@ export function App() {
                   lanes={orderedLanes}
                   branches={workspace.branches}
                   isActionPending={isActionPending}
+                  openCreateTick={botCreateTick}
                   onSelectBot={setActiveBotId}
+                  onCreateBot={handleCreateBot}
+                  onUpdateBot={handleUpdateBot}
+                  onDeleteBot={handleDeleteBot}
                   onToggleBotLane={handleToggleBotLane}
+                  onToggleBotPlugin={handleToggleBotPlugin}
                   onHandleSuggestion={handleBotSuggestion}
                   onOpenLane={openLane}
                 />
@@ -877,7 +980,7 @@ export function App() {
               {place === 'scheduled' && (
                 <ScheduledView
                   jobs={workspace.jobs}
-                  lanes={workspace.lanes}
+                  lanes={orderedLanes}
                   isActionPending={isActionPending}
                   onCreateJob={handleCreateJob}
                   onJobAction={handleJobAction}
@@ -887,9 +990,11 @@ export function App() {
               {place === 'library' && (
                 <LibraryView
                   items={workspace.library}
-                  lanes={workspace.lanes}
+                  lanes={orderedLanes}
                   isActionPending={isActionPending}
                   onAddFile={handleAddFile}
+                  onUpdateFile={handleUpdateFile}
+                  onDeleteFile={handleDeleteFile}
                 />
               )}
 

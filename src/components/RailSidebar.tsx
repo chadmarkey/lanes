@@ -51,6 +51,7 @@ interface RailSidebarProps {
   onSelectBot: (botId: string) => void;
   onOpenQuickAsk: () => void;
   onOpenNewLane: () => void;
+  onOpenNewBot?: () => void;
   onOpenCustomizeRail: () => void;
   onToggleLightDark: () => void;
   onReorderLanes?: (fromId: string, toId: string) => void;
@@ -80,6 +81,7 @@ export function RailSidebar({
   onSelectBot,
   onOpenQuickAsk,
   onOpenNewLane,
+  onOpenNewBot,
   onOpenCustomizeRail,
   onToggleLightDark,
   onReorderLanes,
@@ -522,7 +524,24 @@ export function RailSidebar({
         <div className="mt-4">
           <div className="flex items-center justify-between px-2 py-1 text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
             <span>Bots</span>
-            <span className="tabular-nums">{bots.length}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="tabular-nums">{bots.length}</span>
+              {onOpenNewBot && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenNewBot();
+                    onCloseMobile();
+                  }}
+                  title="New bot"
+                  aria-label="New bot"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-[5px] hover:bg-[var(--l-hover)]"
+                  style={{ color: 'var(--l-muted)' }}
+                >
+                  <Plus size={12} />
+                </button>
+              )}
+            </span>
           </div>
           <div className="space-y-0.5">
             {bots.map((bot) => {

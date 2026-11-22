@@ -162,6 +162,7 @@ export interface Lane {
   approvalMode: ApprovalMode;
   defaultAgentId: AgentId;
   instructions: string;
+  enabledPlugins?: string[];
   messages: ChatMessage[];
   updatedAt: string;
 }
@@ -201,7 +202,9 @@ export interface Bot {
   name: string;
   job: string;
   agentId: AgentId;
+  instructions?: string;
   allowedLaneIds: string[];
+  enabledPlugins?: string[];
   morningSuggestions: boolean;
   messages: ChatMessage[];
   suggestions: BotSuggestion[];
@@ -224,6 +227,7 @@ export interface ScheduledJob {
 export interface LibraryItem {
   id: string;
   name: string;
+  folder?: string;
   laneId: string;
   laneName: string;
   laneColor: LaneColorIndex;

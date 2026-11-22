@@ -355,7 +355,11 @@ export async function createApp(
       icon,
       isPrivate: Boolean(body.isPrivate),
       approvalMode,
+      defaultAgentId: VALID_AGENTS.has(body.defaultAgentId as AgentId)
+        ? (body.defaultAgentId as AgentId)
+        : undefined,
       instructions: typeof body.instructions === 'string' ? body.instructions : '',
+      enabledPlugins: Array.isArray(body.enabledPlugins) ? (body.enabledPlugins as string[]) : undefined,
     });
     res.status(201).json({ lane, state: store.getState() });
   });
@@ -377,6 +381,7 @@ export async function createApp(
       patch.defaultAgentId = body.defaultAgentId as AgentId;
     }
     if (typeof body.instructions === 'string') patch.instructions = body.instructions;
+    if (Array.isArray(body.enabledPlugins)) patch.enabledPlugins = body.enabledPlugins as string[];
 
     const updated = store.updateLane(String(req.params.id), patch);
     if (!updated) {
@@ -384,6 +389,34 @@ export async function createApp(
       return;
     }
     res.json({ lane: updated, state: store.getState() });
+  });
+
+  app.delete('/api/lanes/:id', (req: Request, res: Response) => {
+    const ok = store.deleteLane(String(req.params.id));
+    if (!ok) {
+      res.status(404).json({ error: 'Lane not found.' });
+      return;
+    }
+    res.json({ ok: true, state: store.getState() });
+  });
+
+  app.post('/api/lanes/:id/plugins', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const pluginId = typeof body?.pluginId === 'string' ? body.pluginId : '';
+    if (!pluginId) {
+      res.status(400).json({ error: 'Plugin id is required.' });
+      return;
+    }
+    const result = store.toggleLanePlugin(String(req.params.id), pluginId);
+    if (result.blockedPrivate) {
+      res.status(400).json({ error: 'Cloud plugins cannot be enabled on private local-only lanes.' });
+      return;
+    }
+    if (!result.lane) {
+      res.status(404).json({ error: 'Lane or plugin not found.' });
+      return;
+    }
+    res.json({ lane: result.lane, state: store.getState() });
   });
 
   app.post('/api/lanes/:id/messages', async (req: Request, res: Response) => {
@@ -680,6 +713,68 @@ export async function createApp(
     res.json({ item, state: store.getState() });
   });
 
+  app.post('/api/bots', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'Bot name is required.' });
+      return;
+    }
+    const agentId = VALID_AGENTS.has(body.agentId as AgentId) ? (body.agentId as AgentId) : 'claude';
+    const bot = store.createBot({
+      name,
+      job: typeof body.job === 'string' ? body.job : '',
+      agentId,
+      instructions: typeof body.instructions === 'string' ? body.instructions : '',
+      allowedLaneIds: Array.isArray(body.allowedLaneIds) ? (body.allowedLaneIds as string[]) : [],
+      enabledPlugins: Array.isArray(body.enabledPlugins) ? (body.enabledPlugins as string[]) : undefined,
+      morningSuggestions: body.morningSuggestions !== false,
+    });
+    res.status(201).json({ bot, state: store.getState() });
+  });
+
+  app.patch('/api/bots/:id', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const patch: Parameters<LanesStore['updateBot']>[1] = {};
+    if (typeof body.name === 'string') patch.name = body.name;
+    if (typeof body.job === 'string') patch.job = body.job;
+    if (VALID_AGENTS.has(body.agentId as AgentId)) patch.agentId = body.agentId as AgentId;
+    if (typeof body.instructions === 'string') patch.instructions = body.instructions;
+    if (typeof body.morningSuggestions === 'boolean') patch.morningSuggestions = body.morningSuggestions;
+    if (Array.isArray(body.enabledPlugins)) patch.enabledPlugins = body.enabledPlugins as string[];
+
+    const bot = store.updateBot(String(req.params.id), patch);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found.' });
+      return;
+    }
+    res.json({ bot, state: store.getState() });
+  });
+
+  app.delete('/api/bots/:id', (req: Request, res: Response) => {
+    const ok = store.deleteBot(String(req.params.id));
+    if (!ok) {
+      res.status(404).json({ error: 'Bot not found.' });
+      return;
+    }
+    res.json({ ok: true, state: store.getState() });
+  });
+
+  app.post('/api/bots/:id/plugins', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const pluginId = typeof body?.pluginId === 'string' ? body.pluginId : '';
+    if (!pluginId) {
+      res.status(400).json({ error: 'Plugin id is required.' });
+      return;
+    }
+    const bot = store.toggleBotPlugin(String(req.params.id), pluginId);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot or plugin not found.' });
+      return;
+    }
+    res.json({ bot, state: store.getState() });
+  });
+
   app.post('/api/bots/:id/lanes', (req: Request, res: Response) => {
     const body = req.body as Record<string, unknown>;
     const laneId = typeof body?.laneId === 'string' ? body.laneId : '';
@@ -761,15 +856,44 @@ export async function createApp(
       : 'doc';
     const item = store.addLibraryItem({
       name,
+      folder: typeof body.folder === 'string' ? body.folder : undefined,
       laneId,
       kind,
       preview: typeof body.preview === 'string' ? body.preview : '',
+      size: typeof body.size === 'string' ? body.size : undefined,
     });
     if (!item) {
       res.status(404).json({ error: 'Lane not found.' });
       return;
     }
     res.status(201).json({ item, state: store.getState() });
+  });
+
+  app.patch('/api/library/:id', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const patch: Parameters<LanesStore['updateLibraryItem']>[1] = {};
+    if (typeof body.name === 'string') patch.name = body.name;
+    if (typeof body.folder === 'string') patch.folder = body.folder;
+    if (typeof body.laneId === 'string') patch.laneId = body.laneId;
+    if (typeof body.preview === 'string') patch.preview = body.preview;
+    if ((['doc', 'code', 'image', 'pdf'] as const).includes(body.kind as LibraryItem['kind'])) {
+      patch.kind = body.kind as LibraryItem['kind'];
+    }
+    const item = store.updateLibraryItem(String(req.params.id), patch);
+    if (!item) {
+      res.status(404).json({ error: 'File or target lane not found.' });
+      return;
+    }
+    res.json({ item, state: store.getState() });
+  });
+
+  app.delete('/api/library/:id', (req: Request, res: Response) => {
+    const ok = store.deleteLibraryItem(String(req.params.id));
+    if (!ok) {
+      res.status(404).json({ error: 'File not found.' });
+      return;
+    }
+    res.json({ ok: true, state: store.getState() });
   });
 
   app.post('/api/memory', (req: Request, res: Response) => {

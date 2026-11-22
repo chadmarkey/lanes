@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ExternalLink,
   FileCode2,
+  FolderOpen,
   GitBranch,
   GitMerge,
   Globe,
@@ -16,12 +17,15 @@ import {
   MessageSquare,
   PanelLeft,
   PanelRight,
+  Plug,
   Plus,
   Settings2,
   Sparkles,
   Terminal,
+  Trash2,
   X,
 } from 'lucide-react';
+import { WORKSPACE_PLUGINS } from '../lib/plugins';
 import type {
   AgentId,
   ApprovalMode,
@@ -32,6 +36,7 @@ import type {
   GeminiModelId,
   Lane,
   LaneColorIndex,
+  LibraryItem,
 } from '../lib/types';
 import type { TerminalSettings } from '../lib/terminalConfig';
 import type { TerminalDockPosition, WorkerDockPosition } from '../lib/workspaceLayout';
@@ -92,6 +97,10 @@ interface LaneViewProps {
   onResolveDecision: (branchId: string, choiceKey: string) => Promise<boolean | void>;
   onMergeBranch: (branchId: string) => Promise<boolean | void>;
   onUpdateLane: (laneId: string, patch: Partial<Lane>) => Promise<boolean | void>;
+  onDeleteLane?: (laneId: string) => Promise<boolean | void>;
+  onToggleLanePlugin?: (laneId: string, pluginId: string) => Promise<boolean | void>;
+  laneFiles?: LibraryItem[];
+  onOpenLibrary?: () => void;
   onOpenVoice?: () => void;
   onNotify?: (msg: string, tone?: 'info' | 'error') => void;
 }
@@ -1019,6 +1028,10 @@ export function LaneView({
   onResolveDecision,
   onMergeBranch,
   onUpdateLane,
+  onDeleteLane,
+  onToggleLanePlugin,
+  laneFiles = [],
+  onOpenLibrary,
   onOpenVoice,
   onNotify,
 }: LaneViewProps) {
@@ -1027,6 +1040,8 @@ export function LaneView({
   const [draggingPane, setDraggingPane] = useState<'terminal' | 'worker' | null>(null);
   const [hoverDropZone, setHoverDropZone] = useState<'left' | 'right' | 'bottom' | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'plugins' | 'files'>('general');
+  const { armedKey: laneArmedKey, trigger: triggerLaneConfirm, disarm: disarmLaneConfirm } = useTwoStepConfirm();
 
   // Ctrl+` toggles the bottom Ghostty terminal drawer on any lane
   useEffect(() => {
@@ -1051,6 +1066,7 @@ export function LaneView({
   const [editPrivate, setEditPrivate] = useState(lane?.isPrivate ?? false);
   const [confirmUnprivate, setConfirmUnprivate] = useState(false);
   const [editApproval, setEditApproval] = useState<ApprovalMode>(lane?.approvalMode ?? 'Safe-auto');
+  const [editDefaultAgent, setEditDefaultAgent] = useState<AgentId>(lane?.defaultAgentId ?? 'claude');
   const [editInstructions, setEditInstructions] = useState(lane?.instructions ?? '');
 
   const scrollEndRef = useRef<HTMLDivElement>(null);
@@ -1064,6 +1080,7 @@ export function LaneView({
       setEditPrivate(lane.isPrivate);
       setConfirmUnprivate(false);
       setEditApproval(lane.approvalMode);
+      setEditDefaultAgent(lane.defaultAgentId);
       setEditInstructions(lane.instructions);
       setBranchAgent(lane.isPrivate ? 'qwen' : lane.defaultAgentId);
     }
@@ -1094,6 +1111,7 @@ export function LaneView({
       icon: editIcon,
       isPrivate: editPrivate,
       approvalMode: editApproval,
+      defaultAgentId: editPrivate ? 'qwen' : editDefaultAgent,
       instructions: editInstructions,
     });
     if (ok !== false) {
@@ -1617,33 +1635,34 @@ export function LaneView({
         </AccessibleDialog>
       )}
 
-      {/* Lane Settings Modal */}
+      {/* Lane Settings & Management Modal (General · Plugins · Files) */}
       {lane && (
         <AccessibleDialog
           open={settingsOpen}
           onClose={() => {
             setConfirmUnprivate(false);
+            disarmLaneConfirm();
             setSettingsOpen(false);
           }}
           ariaLabelledBy="lane-settings-dialog-title"
         >
-          <form
-            onSubmit={(e) => void handleSaveSettings(e)}
-            className="max-h-[88vh] w-[min(520px,calc(100vw-2rem))] overflow-y-auto rounded-[14px] border p-5"
+          <div
+            className="max-h-[88vh] w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-[14px] border p-5"
             style={{
               backgroundColor: 'var(--l-raised)',
               borderColor: 'var(--l-line)',
               boxShadow: 'var(--l-shadow-menu)',
             }}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between">
               <h2 id="lane-settings-dialog-title" className="m-0 text-[16px] font-semibold" style={{ color: 'var(--l-text)' }}>
-                Lane settings
+                Manage {lane.name}
               </h2>
               <button
                 type="button"
                 onClick={() => {
                   setConfirmUnprivate(false);
+                  disarmLaneConfirm();
                   setSettingsOpen(false);
                 }}
                 aria-label="Close lane settings"
@@ -1654,172 +1673,391 @@ export function LaneView({
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="lane-name-input" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                  Name
-                </label>
-                <input
-                  id="lane-name-input"
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="h-9 w-full rounded-[8px] border px-3 text-[14px]"
-                  style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="lane-purpose-input" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                  Purpose
-                </label>
-                <input
-                  id="lane-purpose-input"
-                  type="text"
-                  value={editPurpose}
-                  onChange={(e) => setEditPurpose(e.target.value)}
-                  className="h-9 w-full rounded-[8px] border px-3 text-[14px]"
-                  style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <span className="mb-1.5 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                    Color
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {LANE_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setEditColor(c)}
-                        aria-label={`Lane color ${c}`}
-                        aria-pressed={editColor === c}
-                        className="h-7 w-7 rounded-[7px] border-2"
-                        style={{
-                          backgroundColor: `var(--l-type-${c})`,
-                          borderColor: editColor === c ? 'var(--l-text)' : 'transparent',
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="lane-icon-select" className="mb-1.5 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                    Icon
-                  </label>
-                  <select
-                    id="lane-icon-select"
-                    value={editIcon}
-                    onChange={(e) => setEditIcon(e.target.value as Lane['icon'])}
-                    className="h-8 w-full rounded-[8px] border px-2 text-[13px]"
-                    style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-                  >
-                    {LANE_ICONS.map((ic) => (
-                      <option key={ic.id} value={ic.id}>
-                        {ic.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 rounded-[10px] border p-3" style={{ borderColor: downgradingPrivacy ? 'var(--l-needs)' : 'var(--l-line)', backgroundColor: downgradingPrivacy ? 'var(--l-needs-soft)' : 'var(--l-panel)' }}>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="m-0 text-[13px] font-medium" style={{ color: 'var(--l-text)' }}>
-                      Local-only privacy
-                    </p>
-                    <p className="m-0 text-[12px]" style={{ color: 'var(--l-muted)' }}>
-                      Locks to local Qwen, hides files from Library, and blocks bot access.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={editPrivate}
-                    onChange={(e) => {
-                      setEditPrivate(e.target.checked);
-                      if (e.target.checked) setConfirmUnprivate(false);
+            {/* Settings tabs */}
+            <div
+              className="mb-4 flex items-center gap-1 border-b pb-2.5"
+              style={{ borderColor: 'var(--l-line)' }}
+              role="tablist"
+              aria-label="Lane management tabs"
+            >
+              {(
+                [
+                  { id: 'general' as const, label: 'General', icon: Settings2 },
+                  {
+                    id: 'plugins' as const,
+                    label: `Plugins (${(lane.enabledPlugins ?? []).length})`,
+                    icon: Plug,
+                  },
+                  { id: 'files' as const, label: `Files (${laneFiles.length})`, icon: FolderOpen },
+                ] as const
+              ).map((t) => {
+                const Icon = t.icon;
+                const active = settingsTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setSettingsTab(t.id)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[12px] font-medium transition-colors hover:bg-[var(--l-hover)]"
+                    style={{
+                      backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                      color: active ? 'var(--l-text)' : 'var(--l-muted)',
                     }}
-                    aria-label="Local-only privacy"
-                    className="h-4 w-4 shrink-0 accent-[var(--l-accent)]"
-                  />
-                </div>
-                {downgradingPrivacy && (
-                  <label
-                    className="flex cursor-pointer items-start gap-2 border-t pt-2.5 text-[12px]"
-                    style={{ borderColor: 'var(--l-line)', color: 'var(--l-text)' }}
                   >
+                    <Icon size={13} />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {settingsTab === 'general' && (
+              <form onSubmit={(e) => void handleSaveSettings(e)}>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="lane-name-input" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                      Name
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={confirmUnprivate}
-                      onChange={(e) => setConfirmUnprivate(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--l-needs)]"
+                      id="lane-name-input"
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="h-9 w-full rounded-[8px] border px-3 text-[14px]"
+                      style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
                     />
-                    <span>
-                      I understand turning off Local-only lets cloud models, Library, and Bots access this lane.
-                    </span>
-                  </label>
+                  </div>
+
+                  <div>
+                    <label htmlFor="lane-purpose-input" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                      Purpose
+                    </label>
+                    <input
+                      id="lane-purpose-input"
+                      type="text"
+                      value={editPurpose}
+                      onChange={(e) => setEditPurpose(e.target.value)}
+                      className="h-9 w-full rounded-[8px] border px-3 text-[14px]"
+                      style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <span className="mb-1.5 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                        Color
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {LANE_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setEditColor(c)}
+                            aria-label={`Lane color ${c}`}
+                            aria-pressed={editColor === c}
+                            className="h-7 w-7 rounded-[7px] border-2"
+                            style={{
+                              backgroundColor: `var(--l-type-${c})`,
+                              borderColor: editColor === c ? 'var(--l-text)' : 'transparent',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="lane-icon-select" className="mb-1.5 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                        Icon
+                      </label>
+                      <select
+                        id="lane-icon-select"
+                        value={editIcon}
+                        onChange={(e) => setEditIcon(e.target.value as Lane['icon'])}
+                        className="h-8 w-full rounded-[8px] border px-2 text-[13px]"
+                        style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                      >
+                        {LANE_ICONS.map((ic) => (
+                          <option key={ic.id} value={ic.id}>
+                            {ic.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="lane-agent-select" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                        Default agent
+                      </label>
+                      <select
+                        id="lane-agent-select"
+                        value={editPrivate ? 'qwen' : editDefaultAgent}
+                        disabled={editPrivate}
+                        onChange={(e) => setEditDefaultAgent(e.target.value as AgentId)}
+                        className="h-9 w-full rounded-[8px] border px-2.5 text-[13px] disabled:opacity-55"
+                        style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                      >
+                        {(editPrivate ? AGENTS.filter((a) => a.localOnly) : AGENTS).map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.label} ({a.modelName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label htmlFor="lane-approval-select" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                        Approval level
+                      </label>
+                      <select
+                        id="lane-approval-select"
+                        value={editApproval}
+                        onChange={(e) => setEditApproval(e.target.value as ApprovalMode)}
+                        className="h-9 w-full rounded-[8px] border px-2.5 text-[13px]"
+                        style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                      >
+                        <option value="Ask">Asks first</option>
+                        <option value="Safe-auto">Safe-auto</option>
+                        <option value="Full">Edits alone</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div
+                    className="space-y-2.5 rounded-[10px] border p-3"
+                    style={{
+                      borderColor: downgradingPrivacy ? 'var(--l-needs)' : 'var(--l-line)',
+                      backgroundColor: downgradingPrivacy ? 'var(--l-needs-soft)' : 'var(--l-panel)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="m-0 text-[13px] font-medium" style={{ color: 'var(--l-text)' }}>
+                          Local-only privacy
+                        </p>
+                        <p className="m-0 text-[12px]" style={{ color: 'var(--l-muted)' }}>
+                          Locks to local Qwen, disables cloud plugins, hides files from Library, and blocks bot access.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={editPrivate}
+                        onChange={(e) => {
+                          setEditPrivate(e.target.checked);
+                          if (e.target.checked) setConfirmUnprivate(false);
+                        }}
+                        aria-label="Local-only privacy"
+                        className="h-4 w-4 shrink-0 accent-[var(--l-accent)]"
+                      />
+                    </div>
+                    {downgradingPrivacy && (
+                      <label
+                        className="flex cursor-pointer items-start gap-2 border-t pt-2.5 text-[12px]"
+                        style={{ borderColor: 'var(--l-line)', color: 'var(--l-text)' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={confirmUnprivate}
+                          onChange={(e) => setConfirmUnprivate(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--l-needs)]"
+                        />
+                        <span>
+                          I understand turning off Local-only lets cloud models, Library, and Bots access this lane.
+                        </span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="lane-agents-md" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                      Lane instructions (AGENTS.md)
+                    </label>
+                    <textarea
+                      id="lane-agents-md"
+                      rows={4}
+                      value={editInstructions}
+                      onChange={(e) => setEditInstructions(e.target.value)}
+                      className="w-full rounded-[8px] border p-2.5 font-mono text-[12px] leading-[1.5]"
+                      style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    {onDeleteLane && (
+                      <>
+                        {laneArmedKey === `delete-lane:${lane.id}` && (
+                          <button
+                            type="button"
+                            onClick={disarmLaneConfirm}
+                            className="h-8 rounded-[8px] border px-2.5 text-[12px] font-medium hover:bg-[var(--l-hover)]"
+                            style={{ borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={isActionPending(`lane-delete:${lane.id}`)}
+                          onClick={() =>
+                            triggerLaneConfirm(`delete-lane:${lane.id}`, async () => {
+                              const ok = await onDeleteLane(lane.id);
+                              if (ok !== false) setSettingsOpen(false);
+                            })
+                          }
+                          className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-[12px] font-medium disabled:opacity-50"
+                          style={{
+                            backgroundColor: laneArmedKey === `delete-lane:${lane.id}` ? 'var(--l-bad)' : 'transparent',
+                            borderColor: laneArmedKey === `delete-lane:${lane.id}` ? 'var(--l-bad)' : 'var(--l-line)',
+                            color: laneArmedKey === `delete-lane:${lane.id}` ? 'var(--l-on-bad)' : 'var(--l-muted)',
+                          }}
+                        >
+                          <Trash2 size={12} />
+                          <span>
+                            {laneArmedKey === `delete-lane:${lane.id}` ? 'Confirm delete lane' : 'Delete lane'}
+                          </span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmUnprivate(false);
+                        disarmLaneConfirm();
+                        setSettingsOpen(false);
+                      }}
+                      className="h-8 rounded-[8px] border px-3 text-[13px] font-medium whitespace-nowrap hover:bg-[var(--l-hover)]"
+                      style={{ borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingSettings || (downgradingPrivacy && !confirmUnprivate)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-[8px] px-3.5 text-[13px] font-medium whitespace-nowrap disabled:opacity-45"
+                      style={{ backgroundColor: 'var(--l-accent)', color: 'var(--l-on-accent)' }}
+                    >
+                      {savingSettings && <LoaderCircle size={13} className="lanes-spin" />}
+                      <span>{savingSettings ? 'Saving…' : 'Save changes'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {settingsTab === 'plugins' && (
+              <div className="space-y-3">
+                <p className="m-0 text-[12px]" style={{ color: 'var(--l-muted)' }}>
+                  {lane.isPrivate
+                    ? 'Private local-only lanes can enable local-safe tools only; cloud connectors stay locked.'
+                    : 'Choose which tools and connectors are active inside this lane.'}
+                </p>
+                <div className="space-y-2">
+                  {WORKSPACE_PLUGINS.map((plugin) => {
+                    const locked = lane.isPrivate && !plugin.localSafe;
+                    const enabled = (lane.enabledPlugins ?? []).includes(plugin.id);
+                    const busy = isActionPending(`lane-plugin:${lane.id}:${plugin.id}`);
+                    return (
+                      <label
+                        key={plugin.id}
+                        className={`flex items-start justify-between gap-3 rounded-[9px] border px-3 py-2.5 ${
+                          locked ? 'opacity-60' : 'cursor-pointer hover:bg-[var(--l-hover)]'
+                        }`}
+                        style={{ borderColor: 'var(--l-line)', backgroundColor: 'var(--l-bg)' }}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-medium" style={{ color: 'var(--l-text)' }}>
+                              {plugin.name}
+                            </span>
+                            <span className="text-[12px] capitalize" style={{ color: 'var(--l-muted)' }}>
+                              {plugin.category}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 mb-0 text-[12px] leading-snug" style={{ color: 'var(--l-muted)' }}>
+                            {plugin.description}
+                          </p>
+                        </div>
+                        {locked ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[12px]" style={{ color: 'var(--l-muted)' }}>
+                            <Lock size={12} />
+                            <span>Local-only</span>
+                          </span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            disabled={busy || !onToggleLanePlugin}
+                            onChange={() => void onToggleLanePlugin?.(lane.id, plugin.id)}
+                            aria-label={`Enable ${plugin.name} in ${lane.name}`}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--l-accent)] disabled:opacity-50"
+                          />
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {settingsTab === 'files' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="m-0 text-[12px]" style={{ color: 'var(--l-muted)' }}>
+                    {laneFiles.length} {laneFiles.length === 1 ? 'file' : 'files'} stored in {lane.name}.
+                  </p>
+                  {onOpenLibrary && !lane.isPrivate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsOpen(false);
+                        onOpenLibrary();
+                      }}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border px-2.5 text-[12px] font-medium hover:bg-[var(--l-hover)]"
+                      style={{ borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+                    >
+                      <FolderOpen size={12} />
+                      <span>Open File Manager</span>
+                    </button>
+                  )}
+                </div>
+                {laneFiles.length === 0 ? (
+                  <EmptyState
+                    title="No files in this lane yet"
+                    detail="Upload or create files in the Library & File Manager to index them here."
+                  />
+                ) : (
+                  <div
+                    className="divide-y rounded-[10px] border"
+                    style={{ borderColor: 'var(--l-line)', backgroundColor: 'var(--l-bg)' }}
+                  >
+                    {laneFiles.map((f) => (
+                      <div key={f.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="m-0 truncate text-[13px] font-medium" style={{ color: 'var(--l-text)' }}>
+                            {f.name}
+                          </p>
+                          <p className="m-0 truncate text-[12px]" style={{ color: 'var(--l-muted)' }}>
+                            {f.folder || 'General'} · {f.origin}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: 'var(--l-muted)' }}>
+                          {f.size}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              <div>
-                <label htmlFor="lane-approval-select" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                  Approval level
-                </label>
-                <select
-                  id="lane-approval-select"
-                  value={editApproval}
-                  onChange={(e) => setEditApproval(e.target.value as ApprovalMode)}
-                  className="h-9 w-full rounded-[8px] border px-2.5 text-[13px]"
-                  style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-                >
-                  <option value="Ask">Asks first</option>
-                  <option value="Safe-auto">Safe-auto</option>
-                  <option value="Full">Edits alone</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="lane-agents-md" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-                  Lane instructions (AGENTS.md)
-                </label>
-                <textarea
-                  id="lane-agents-md"
-                  rows={4}
-                  value={editInstructions}
-                  onChange={(e) => setEditInstructions(e.target.value)}
-                  className="w-full rounded-[8px] border p-2.5 font-mono text-[12px] leading-[1.5]"
-                  style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmUnprivate(false);
-                  setSettingsOpen(false);
-                }}
-                className="h-8 rounded-[8px] border px-3 text-[13px] font-medium whitespace-nowrap hover:bg-[var(--l-hover)]"
-                style={{ borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={savingSettings || (downgradingPrivacy && !confirmUnprivate)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-[8px] px-3.5 text-[13px] font-medium whitespace-nowrap disabled:opacity-45"
-                style={{ backgroundColor: 'var(--l-accent)', color: 'var(--l-on-accent)' }}
-              >
-                {savingSettings && <LoaderCircle size={13} className="lanes-spin" />}
-                <span>{savingSettings ? 'Saving…' : 'Save changes'}</span>
-              </button>
-            </div>
-          </form>
+            )}
+          </div>
         </AccessibleDialog>
       )}
     </div>
@@ -1861,6 +2099,9 @@ export function NewLaneModal({
     icon: Lane['icon'];
     isPrivate: boolean;
     approvalMode: ApprovalMode;
+    defaultAgentId?: AgentId;
+    instructions?: string;
+    enabledPlugins?: string[];
   }) => Promise<boolean | void>;
 }) {
   const [name, setName] = useState('');
@@ -1869,12 +2110,34 @@ export function NewLaneModal({
   const [icon, setIcon] = useState<Lane['icon']>('layers');
   const [isPrivate, setIsPrivate] = useState(false);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('Safe-auto');
+  const [defaultAgentId, setDefaultAgentId] = useState<AgentId>('claude');
+  const [instructions, setInstructions] = useState('');
+  const [enabledPlugins, setEnabledPlugins] = useState<string[]>([
+    'file-manager',
+    'memory-sync',
+  ]);
 
   useEffect(() => {
     if (open) {
       setColor(pickLeastUsedColor(existingLanes));
     }
   }, [open, existingLanes]);
+
+  function togglePrivate(nextPrivate: boolean) {
+    setIsPrivate(nextPrivate);
+    if (nextPrivate) {
+      setDefaultAgentId('qwen');
+      setEnabledPlugins((prev) =>
+        prev.filter((id) => WORKSPACE_PLUGINS.find((p) => p.id === id)?.localSafe)
+      );
+    }
+  }
+
+  function togglePlugin(pluginId: string) {
+    setEnabledPlugins((prev) =>
+      prev.includes(pluginId) ? prev.filter((id) => id !== pluginId) : [...prev, pluginId]
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1886,11 +2149,17 @@ export function NewLaneModal({
       icon,
       isPrivate,
       approvalMode,
+      defaultAgentId: isPrivate ? 'qwen' : defaultAgentId,
+      instructions: instructions.trim(),
+      enabledPlugins,
     });
     if (ok !== false) {
       setName('');
       setPurpose('');
       setIsPrivate(false);
+      setDefaultAgentId('claude');
+      setInstructions('');
+      setEnabledPlugins(['file-manager', 'memory-sync']);
       onClose();
     }
   }
@@ -1899,7 +2168,7 @@ export function NewLaneModal({
     <AccessibleDialog open={open} onClose={onClose} ariaLabelledBy="new-lane-dialog-title">
       <form
         onSubmit={(e) => void handleSubmit(e)}
-        className="w-[min(460px,calc(100vw-2rem))] rounded-[14px] border p-5"
+        className="max-h-[90vh] w-[min(520px,calc(100vw-2rem))] overflow-y-auto rounded-[14px] border p-5"
         style={{
           backgroundColor: 'var(--l-raised)',
           borderColor: 'var(--l-line)',
@@ -1997,32 +2266,97 @@ export function NewLaneModal({
                 Local-only private lane
               </p>
               <p className="m-0 text-[12px]" style={{ color: 'var(--l-muted)' }}>
-                Local models only, excluded from shared Library and bots.
+                Local models & local-safe plugins only; excluded from shared Library and bots.
               </p>
             </div>
             <input
               type="checkbox"
               checked={isPrivate}
-              onChange={(e) => setIsPrivate(e.target.checked)}
+              onChange={(e) => togglePrivate(e.target.checked)}
               aria-label="Local-only private lane"
               className="h-4 w-4 shrink-0 accent-[var(--l-accent)]"
             />
           </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="create-lane-agent" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                Default agent
+              </label>
+              <select
+                id="create-lane-agent"
+                value={isPrivate ? 'qwen' : defaultAgentId}
+                disabled={isPrivate}
+                onChange={(e) => setDefaultAgentId(e.target.value as AgentId)}
+                className="h-9 w-full rounded-[8px] border px-2.5 text-[13px] disabled:opacity-65"
+                style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+              >
+                {AGENTS.map((agent) => (
+                  <option key={agent.id} value={agent.id} disabled={isPrivate && agent.id !== 'qwen'}>
+                    {agent.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="create-lane-approval" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+                Approval level
+              </label>
+              <select
+                id="create-lane-approval"
+                value={approvalMode}
+                onChange={(e) => setApprovalMode(e.target.value as ApprovalMode)}
+                className="h-9 w-full rounded-[8px] border px-2.5 text-[13px]"
+                style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
+              >
+                <option value="Ask">Asks first</option>
+                <option value="Safe-auto">Safe-auto</option>
+                <option value="Full">Edits alone</option>
+              </select>
+            </div>
+          </div>
           <div>
-            <label htmlFor="create-lane-approval" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
-              Approval level
+            <span className="mb-1.5 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+              Plugins for this lane ({enabledPlugins.length})
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {WORKSPACE_PLUGINS.map((plugin) => {
+                const locked = isPrivate && !plugin.localSafe;
+                const active = !locked && enabledPlugins.includes(plugin.id);
+                return (
+                  <button
+                    key={plugin.id}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => togglePlugin(plugin.id)}
+                    aria-pressed={active}
+                    title={locked ? 'Cloud plugins are blocked in local-only lanes' : plugin.description}
+                    className="inline-flex h-7 items-center gap-1 rounded-[7px] border px-2 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+                    style={{
+                      backgroundColor: active ? 'var(--l-accent-soft)' : 'var(--l-bg)',
+                      borderColor: active ? 'var(--l-accent)' : 'var(--l-line-strong)',
+                      color: active ? 'var(--l-accent)' : 'var(--l-text)',
+                    }}
+                  >
+                    {locked && <Lock size={11} />}
+                    <span>{plugin.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="create-lane-instructions" className="mb-1 block text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
+              Standing instructions (optional)
             </label>
-            <select
-              id="create-lane-approval"
-              value={approvalMode}
-              onChange={(e) => setApprovalMode(e.target.value as ApprovalMode)}
-              className="h-9 w-full rounded-[8px] border px-2.5 text-[13px]"
+            <textarea
+              id="create-lane-instructions"
+              rows={2}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="Rules, tone, or constraints every agent follows in this lane"
+              className="w-full rounded-[8px] border p-2.5 text-[13px] leading-relaxed"
               style={{ backgroundColor: 'var(--l-bg)', borderColor: 'var(--l-line-strong)', color: 'var(--l-text)' }}
-            >
-              <option value="Ask">Asks first</option>
-              <option value="Safe-auto">Safe-auto</option>
-              <option value="Full">Edits alone</option>
-            </select>
+            />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

@@ -12,6 +12,7 @@ import type {
   ScheduledJob,
   WorkspaceState,
 } from '../lib/types.ts';
+import { getPlugin, sanitizePluginIds } from '../lib/plugins.ts';
 
 function nowLabel(): string {
   return 'just now';
@@ -34,6 +35,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       unread: false,
       approvalMode: 'Safe-auto',
       defaultAgentId: 'claude',
+      enabledPlugins: ['ghostty-terminal', 'git-diffs', 'lint-test', 'github-prs', 'file-manager'],
       instructions:
         'Follow DESIGN.md strictly. Every color uses a --l-* token, amber is reserved for "Needs you", and every icon-only button has a tooltip.',
       updatedAt: '4m',
@@ -79,6 +81,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       unread: true,
       approvalMode: 'Ask',
       defaultAgentId: 'antigravity',
+      enabledPlugins: ['pdf-reader', 'web-search', 'file-manager', 'memory-sync'],
       instructions:
         'Always cite page numbers and keep quotes verbatim. Write plain, skimmable summaries for clinical review.',
       updatedAt: '18m',
@@ -118,6 +121,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       unread: false,
       approvalMode: 'Safe-auto',
       defaultAgentId: 'gemini',
+      enabledPlugins: ['file-manager', 'memory-sync', 'media-voice'],
       instructions:
         'Sentence case for every heading and button. No exclamation marks, no filler, say the result rather than the mechanism.',
       updatedAt: '3h',
@@ -149,6 +153,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
       unread: false,
       approvalMode: 'Ask',
       defaultAgentId: 'qwen',
+      enabledPlugins: ['file-manager', 'pdf-reader'],
       instructions:
         'Local-only lane. Never call outbound tools or cloud models. Summarize quarterly estimates clearly.',
       updatedAt: '2d',
@@ -395,6 +400,8 @@ export function createInitialWorkspaceState(): WorkspaceState {
       job: 'Tracks weekly clinical literature, verifies citations, and prepares structured digests.',
       agentId: 'antigravity',
       allowedLaneIds: ['research', 'writing'],
+      enabledPlugins: ['pdf-reader', 'web-search', 'file-manager', 'memory-sync'],
+      instructions: 'Verify citations with exact page numbers and summarize clinical relevance plainly.',
       morningSuggestions: true,
       messages: [
         {
@@ -424,6 +431,8 @@ export function createInitialWorkspaceState(): WorkspaceState {
       job: 'Turns finished branches and engineering notes into calm release notes and clear UI copy.',
       agentId: 'gemini',
       allowedLaneIds: ['writing', 'lanes-build'],
+      enabledPlugins: ['file-manager', 'memory-sync', 'git-diffs'],
+      instructions: 'Write in calm sentence case without filler or exclamation marks.',
       morningSuggestions: true,
       messages: [
         {
@@ -453,6 +462,8 @@ export function createInitialWorkspaceState(): WorkspaceState {
       job: 'Audits diffs against DESIGN.md rules: contrast, tooltips, token discipline, and mobile reflow.',
       agentId: 'codex',
       allowedLaneIds: ['lanes-build'],
+      enabledPlugins: ['git-diffs', 'lint-test', 'ghostty-terminal', 'github-prs'],
+      instructions: 'Check contrast ratios, tooltips, token discipline, and mobile reflow before approving.',
       morningSuggestions: false,
       messages: [
         {
@@ -514,6 +525,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
     {
       id: 'lib-1',
       name: 'empty-state-copy.md',
+      folder: 'Drafts',
       laneId: 'writing',
       laneName: 'Writing',
       laneColor: 2,
@@ -528,6 +540,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
     {
       id: 'lib-2',
       name: 'promis-week-46.md',
+      folder: 'Digests',
       laneId: 'research',
       laneName: 'Research',
       laneColor: 1,
@@ -542,6 +555,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
     {
       id: 'lib-3',
       name: 'tokens-contrast-report.json',
+      folder: 'Reports',
       laneId: 'lanes-build',
       laneName: 'Lanes build',
       laneColor: 3,
@@ -556,6 +570,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
     {
       id: 'lib-4',
       name: 'icon-drafts-comparison.svg',
+      folder: 'Assets',
       laneId: 'lanes-build',
       laneName: 'Lanes build',
       laneColor: 3,
@@ -569,6 +584,7 @@ export function createInitialWorkspaceState(): WorkspaceState {
     {
       id: 'lib-5',
       name: 'q3-statements-private.pdf',
+      folder: 'Statements',
       laneId: 'money',
       laneName: 'Money',
       laneColor: 4,
@@ -676,10 +692,10 @@ export function createInitialWorkspaceState(): WorkspaceState {
       {
         id: 'srv-catalog',
         name: 'Design Tokens & Terminal API',
-        endpoint: '/api/tokens · /api/terminal/ws',
+        endpoint: '/api/tokens · /api/terminal/ghostty-config',
         status: 'healthy',
         latencyMs: 4,
-        detail: '16 themes, 26 live shaders, and local Ghostty PTY bridge ready',
+        detail: 'OKLCH token presets and local Ghostty shader loader ready',
       },
     ],
   };
@@ -703,7 +719,9 @@ export class LanesStore {
     icon?: Lane['icon'];
     isPrivate?: boolean;
     approvalMode?: ApprovalMode;
+    defaultAgentId?: AgentId;
     instructions?: string;
+    enabledPlugins?: string[];
   }): Lane {
     const slugBase =
       input.name
@@ -716,6 +734,13 @@ export class LanesStore {
       id = `${slugBase}-${n++}`;
     }
     const isPrivate = Boolean(input.isPrivate);
+    const defaultPlugins = isPrivate
+      ? ['ghostty-terminal', 'file-manager', 'memory-sync']
+      : ['ghostty-terminal', 'git-diffs', 'file-manager', 'memory-sync'];
+    const enabledPlugins =
+      input.enabledPlugins !== undefined
+        ? sanitizePluginIds(input.enabledPlugins, isPrivate)
+        : defaultPlugins;
     const lane: Lane = {
       id,
       name: input.name.trim(),
@@ -726,8 +751,9 @@ export class LanesStore {
       pinned: false,
       unread: false,
       approvalMode: input.approvalMode ?? 'Safe-auto',
-      defaultAgentId: isPrivate ? 'qwen' : 'claude',
+      defaultAgentId: isPrivate ? 'qwen' : input.defaultAgentId ?? 'claude',
       instructions: input.instructions?.trim() ?? '',
+      enabledPlugins,
       messages: [],
       updatedAt: nowLabel(),
     };
@@ -737,7 +763,22 @@ export class LanesStore {
 
   updateLane(
     laneId: string,
-    patch: Partial<Pick<Lane, 'name' | 'purpose' | 'color' | 'icon' | 'isPrivate' | 'pinned' | 'unread' | 'approvalMode' | 'defaultAgentId' | 'instructions'>>
+    patch: Partial<
+      Pick<
+        Lane,
+        | 'name'
+        | 'purpose'
+        | 'color'
+        | 'icon'
+        | 'isPrivate'
+        | 'pinned'
+        | 'unread'
+        | 'approvalMode'
+        | 'defaultAgentId'
+        | 'instructions'
+        | 'enabledPlugins'
+      >
+    >
   ): Lane | null {
     const lane = this.state.lanes.find((l) => l.id === laneId);
     if (!lane) return null;
@@ -753,6 +794,7 @@ export class LanesStore {
       lane.isPrivate = patch.isPrivate;
       if (lane.isPrivate) {
         lane.defaultAgentId = 'qwen';
+        lane.enabledPlugins = sanitizePluginIds(lane.enabledPlugins ?? [], true);
         // Remove private lane from all bots and hide its files from shared library
         for (const bot of this.state.bots) {
           bot.allowedLaneIds = bot.allowedLaneIds.filter((id) => id !== lane.id);
@@ -766,11 +808,46 @@ export class LanesStore {
         }
       }
     }
+    if (patch.enabledPlugins !== undefined) {
+      lane.enabledPlugins = sanitizePluginIds(patch.enabledPlugins, lane.isPrivate);
+    }
     if (patch.defaultAgentId !== undefined) {
       lane.defaultAgentId = lane.isPrivate ? 'qwen' : patch.defaultAgentId;
     }
     lane.updatedAt = nowLabel();
     return lane;
+  }
+
+  deleteLane(laneId: string): boolean {
+    const idx = this.state.lanes.findIndex((l) => l.id === laneId);
+    if (idx === -1) return false;
+    this.state.lanes.splice(idx, 1);
+    this.state.branches = this.state.branches.filter((b) => b.laneId !== laneId);
+    this.state.needs = this.state.needs.filter((n) => n.laneId !== laneId);
+    this.state.jobs = this.state.jobs.filter((j) => j.laneId !== laneId);
+    this.state.library = this.state.library.filter((f) => f.laneId !== laneId);
+    this.state.memory = this.state.memory.filter((m) => m.laneId !== laneId);
+    for (const bot of this.state.bots) {
+      bot.allowedLaneIds = bot.allowedLaneIds.filter((id) => id !== laneId);
+    }
+    return true;
+  }
+
+  toggleLanePlugin(laneId: string, pluginId: string): { lane: Lane | null; blockedPrivate?: boolean } {
+    const lane = this.state.lanes.find((l) => l.id === laneId);
+    const plugin = getPlugin(pluginId);
+    if (!lane || !plugin) return { lane: null };
+    if (lane.isPrivate && !plugin.localSafe) {
+      return { lane: null, blockedPrivate: true };
+    }
+    const current = lane.enabledPlugins ?? [];
+    if (current.includes(pluginId)) {
+      lane.enabledPlugins = current.filter((id) => id !== pluginId);
+    } else {
+      lane.enabledPlugins = [...current, pluginId];
+    }
+    lane.updatedAt = nowLabel();
+    return { lane };
   }
 
   appendLaneMessage(
@@ -1011,6 +1088,92 @@ export class LanesStore {
     return need;
   }
 
+  createBot(input: {
+    name: string;
+    job: string;
+    agentId?: AgentId;
+    instructions?: string;
+    allowedLaneIds?: string[];
+    enabledPlugins?: string[];
+    morningSuggestions?: boolean;
+  }): Bot {
+    const slugBase =
+      input.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'bot';
+    let id = `bot-${slugBase}`;
+    let n = 2;
+    while (this.state.bots.some((b) => b.id === id)) {
+      id = `bot-${slugBase}-${n++}`;
+    }
+    const validLaneIds = (input.allowedLaneIds ?? []).filter((lid) => {
+      const lane = this.state.lanes.find((l) => l.id === lid);
+      return Boolean(lane && !lane.isPrivate);
+    });
+    const bot: Bot = {
+      id,
+      name: input.name.trim(),
+      job: input.job.trim() || 'Specialist background worker',
+      agentId: input.agentId ?? 'claude',
+      instructions: input.instructions?.trim() ?? '',
+      allowedLaneIds: validLaneIds,
+      enabledPlugins:
+        input.enabledPlugins !== undefined
+          ? sanitizePluginIds(input.enabledPlugins, false)
+          : ['file-manager', 'memory-sync'],
+      morningSuggestions: input.morningSuggestions !== false,
+      messages: [
+        {
+          id: makeId('bm'),
+          role: 'assistant',
+          text: `${input.name.trim()} is ready. Toggle lanes and plugins to define its workspace scope.`,
+          timestamp: nowLabel(),
+          agentId: input.agentId ?? 'claude',
+        },
+      ],
+      suggestions: [],
+    };
+    this.state.bots.push(bot);
+    return bot;
+  }
+
+  updateBot(
+    botId: string,
+    patch: Partial<Pick<Bot, 'name' | 'job' | 'agentId' | 'instructions' | 'morningSuggestions' | 'enabledPlugins'>>
+  ): Bot | null {
+    const bot = this.state.bots.find((b) => b.id === botId);
+    if (!bot) return null;
+    if (patch.name !== undefined && patch.name.trim()) bot.name = patch.name.trim();
+    if (patch.job !== undefined) bot.job = patch.job.trim();
+    if (patch.agentId !== undefined) bot.agentId = patch.agentId;
+    if (patch.instructions !== undefined) bot.instructions = patch.instructions;
+    if (patch.morningSuggestions !== undefined) bot.morningSuggestions = patch.morningSuggestions;
+    if (patch.enabledPlugins !== undefined) {
+      bot.enabledPlugins = sanitizePluginIds(patch.enabledPlugins, false);
+    }
+    return bot;
+  }
+
+  deleteBot(botId: string): boolean {
+    const idx = this.state.bots.findIndex((b) => b.id === botId);
+    if (idx === -1) return false;
+    this.state.bots.splice(idx, 1);
+    return true;
+  }
+
+  toggleBotPlugin(botId: string, pluginId: string): Bot | null {
+    const bot = this.state.bots.find((b) => b.id === botId);
+    if (!bot || !getPlugin(pluginId)) return null;
+    const current = bot.enabledPlugins ?? [];
+    if (current.includes(pluginId)) {
+      bot.enabledPlugins = current.filter((id) => id !== pluginId);
+    } else {
+      bot.enabledPlugins = [...current, pluginId];
+    }
+    return bot;
+  }
+
   toggleBotLane(botId: string, laneId: string): Bot | null {
     const bot = this.state.bots.find((b) => b.id === botId);
     const lane = this.state.lanes.find((l) => l.id === laneId);
@@ -1094,20 +1257,23 @@ export class LanesStore {
 
   addLibraryItem(input: {
     name: string;
+    folder?: string;
     laneId: string;
     kind: LibraryItem['kind'];
     preview: string;
+    size?: string;
   }): LibraryItem | null {
     const lane = this.state.lanes.find((l) => l.id === input.laneId);
     if (!lane) return null;
     const item: LibraryItem = {
       id: makeId('lib'),
       name: input.name.trim(),
+      folder: input.folder?.trim() || 'General',
       laneId: lane.id,
       laneName: lane.name,
       laneColor: lane.color,
       kind: input.kind,
-      size: `${Math.max(1, Math.ceil(input.preview.length / 80))} KB`,
+      size: input.size?.trim() || `${Math.max(1, Math.ceil(input.preview.length / 80))} KB`,
       updatedAt: nowLabel(),
       origin: 'Uploaded by you',
       preview: input.preview.trim() || 'Added to lane files.',
@@ -1115,6 +1281,38 @@ export class LanesStore {
     };
     this.state.library.unshift(item);
     return item;
+  }
+
+  updateLibraryItem(
+    itemId: string,
+    patch: Partial<Pick<LibraryItem, 'name' | 'folder' | 'laneId' | 'kind' | 'preview'>>
+  ): LibraryItem | null {
+    const item = this.state.library.find((f) => f.id === itemId);
+    if (!item) return null;
+    if (patch.name !== undefined && patch.name.trim()) item.name = patch.name.trim();
+    if (patch.folder !== undefined) item.folder = patch.folder.trim() || 'General';
+    if (patch.kind !== undefined) item.kind = patch.kind;
+    if (patch.preview !== undefined) {
+      item.preview = patch.preview;
+      item.size = `${Math.max(1, Math.ceil(patch.preview.length / 80))} KB`;
+    }
+    if (patch.laneId !== undefined && patch.laneId !== item.laneId) {
+      const lane = this.state.lanes.find((l) => l.id === patch.laneId);
+      if (!lane) return null;
+      item.laneId = lane.id;
+      item.laneName = lane.name;
+      item.laneColor = lane.color;
+      item.isPrivateLane = lane.isPrivate;
+    }
+    item.updatedAt = nowLabel();
+    return item;
+  }
+
+  deleteLibraryItem(itemId: string): boolean {
+    const idx = this.state.library.findIndex((f) => f.id === itemId);
+    if (idx === -1) return false;
+    this.state.library.splice(idx, 1);
+    return true;
   }
 
   updateMemoryNote(noteId: string, status: 'approved' | 'dismissed'): MemoryNote | null {

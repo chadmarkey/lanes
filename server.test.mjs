@@ -233,3 +233,78 @@ test('Ghostty terminal config API discovers shaders and blocks shader path trave
     assert.equal(badApp.status, 400);
   });
 });
+
+test('Bot, Lane plugin, and Library file manager CRUD enforce privacy boundaries', async () => {
+  await withServer(async (baseUrl) => {
+    // Create a new bot with plugins
+    const botRes = await fetch(`${baseUrl}/api/bots`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'QA Bot',
+        job: 'Check tests and diffs',
+        agentId: 'codex',
+        allowedLaneIds: ['research', 'money'],
+        enabledPlugins: ['git-diffs', 'lint-test'],
+      }),
+    });
+    assert.equal(botRes.status, 201);
+    const { bot } = await botRes.json();
+    assert.equal(bot.name, 'QA Bot');
+    // Private 'money' lane is stripped from bot access automatically
+    assert.deepEqual(bot.allowedLaneIds, ['research']);
+    assert.deepEqual(bot.enabledPlugins, ['git-diffs', 'lint-test']);
+
+    // Toggle plugin on bot
+    const pluginRes = await fetch(`${baseUrl}/api/bots/${bot.id}/plugins`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pluginId: 'web-search' }),
+    });
+    assert.equal(pluginRes.status, 200);
+    const { bot: updatedBot } = await pluginRes.json();
+    assert.ok(updatedBot.enabledPlugins.includes('web-search'));
+
+    // Cloud plugin blocked on private lane ('money')
+    const blockedRes = await fetch(`${baseUrl}/api/lanes/money/plugins`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pluginId: 'web-search' }),
+    });
+    assert.equal(blockedRes.status, 400);
+
+    // Local-safe plugin allowed on private lane
+    const okLocalRes = await fetch(`${baseUrl}/api/lanes/money/plugins`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pluginId: 'pdf-reader' }),
+    });
+    assert.equal(okLocalRes.status, 200);
+
+    // Library file create, edit, and delete
+    const addFileRes = await fetch(`${baseUrl}/api/library`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'plan.md', folder: 'Specs', laneId: 'research', kind: 'doc', preview: 'v1' }),
+    });
+    assert.equal(addFileRes.status, 201);
+    const { item } = await addFileRes.json();
+    assert.equal(item.folder, 'Specs');
+
+    const editFileRes = await fetch(`${baseUrl}/api/library/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'plan-v2.md', preview: 'v2 content' }),
+    });
+    assert.equal(editFileRes.status, 200);
+    const { item: editedItem } = await editFileRes.json();
+    assert.equal(editedItem.name, 'plan-v2.md');
+
+    const delFileRes = await fetch(`${baseUrl}/api/library/${item.id}`, { method: 'DELETE' });
+    assert.equal(delFileRes.status, 200);
+
+    // Delete bot
+    const delBotRes = await fetch(`${baseUrl}/api/bots/${bot.id}`, { method: 'DELETE' });
+    assert.equal(delBotRes.status, 200);
+  });
+});
