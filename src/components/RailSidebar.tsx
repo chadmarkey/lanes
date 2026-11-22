@@ -7,6 +7,7 @@ import {
   CalendarClock,
   ChevronRight,
   FolderOpen,
+  GripVertical,
   House,
   Layers,
   Lock,
@@ -52,6 +53,10 @@ interface RailSidebarProps {
   onOpenNewLane: () => void;
   onOpenCustomizeRail: () => void;
   onToggleLightDark: () => void;
+  onReorderLanes?: (fromId: string, toId: string) => void;
+  onMoveLaneStep?: (laneId: string, delta: -1 | 1) => void;
+  onReorderBots?: (fromId: string, toId: string) => void;
+  onMoveBotStep?: (botId: string, delta: -1 | 1) => void;
 }
 
 export function RailSidebar({
@@ -77,9 +82,15 @@ export function RailSidebar({
   onOpenNewLane,
   onOpenCustomizeRail,
   onToggleLightDark,
+  onReorderLanes,
+  onMoveLaneStep,
+  onReorderBots,
+  onMoveBotStep,
 }: RailSidebarProps) {
   const [query, setQuery] = useState('');
   const [idleExpanded, setIdleExpanded] = useState(true);
+  const [draggingItem, setDraggingItem] = useState<{ kind: 'lane' | 'bot'; id: string } | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const mobileDrawerRef = useRef<HTMLDivElement>(null);
   const mobileReturnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -278,19 +289,57 @@ export function RailSidebar({
             <div className="space-y-0.5">
               {waitingLanes.map((lane) => {
                 const active = place === 'lanes' && activeLaneId === lane.id;
+                const isDropTarget = draggingItem?.kind === 'lane' && dropTargetId === lane.id && draggingItem.id !== lane.id;
                 return (
                   <button
                     key={lane.id}
                     type="button"
-                    title={lane.name}
+                    draggable={Boolean(onReorderLanes)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', `lane:${lane.id}`);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggingItem({ kind: 'lane', id: lane.id });
+                    }}
+                    onDragOver={(e) => {
+                      if (draggingItem?.kind !== 'lane') return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDropTargetId(lane.id);
+                    }}
+                    onDragLeave={() => setDropTargetId((curr) => (curr === lane.id ? null : curr))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggingItem?.kind === 'lane') onReorderLanes?.(draggingItem.id, lane.id);
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.altKey && e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, -1);
+                      } else if (e.altKey && e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, 1);
+                      }
+                    }}
+                    title={`${lane.name} (drag or Alt+↑/↓ to reorder)`}
                     onClick={() => {
                       onSelectLane(lane.id);
                       onCloseMobile();
                     }}
                     aria-current={active ? 'page' : undefined}
-                    className="lanes-density-row flex w-full items-center gap-2.5 rounded-[8px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
-                    style={{ backgroundColor: active ? 'var(--l-selected)' : 'transparent' }}
+                    className="group lanes-density-row flex w-full items-center gap-2 rounded-[8px] px-1.5 py-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
+                    style={{
+                      backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                      boxShadow: isDropTarget ? 'inset 0 2px 0 var(--l-accent)' : undefined,
+                      opacity: draggingItem?.id === lane.id ? 0.55 : 1,
+                    }}
                   >
+                    <GripVertical size={11} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
                     <LaneTile color={lane.color} icon={lane.icon} size="sm" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px]" style={{ color: 'var(--l-text)', fontWeight: active ? 500 : 400 }}>
@@ -318,19 +367,57 @@ export function RailSidebar({
             <div className="space-y-0.5">
               {workingLanes.map((lane) => {
                 const active = place === 'lanes' && activeLaneId === lane.id;
+                const isDropTarget = draggingItem?.kind === 'lane' && dropTargetId === lane.id && draggingItem.id !== lane.id;
                 return (
                   <button
                     key={lane.id}
                     type="button"
-                    title={lane.name}
+                    draggable={Boolean(onReorderLanes)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', `lane:${lane.id}`);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggingItem({ kind: 'lane', id: lane.id });
+                    }}
+                    onDragOver={(e) => {
+                      if (draggingItem?.kind !== 'lane') return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDropTargetId(lane.id);
+                    }}
+                    onDragLeave={() => setDropTargetId((curr) => (curr === lane.id ? null : curr))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggingItem?.kind === 'lane') onReorderLanes?.(draggingItem.id, lane.id);
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.altKey && e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, -1);
+                      } else if (e.altKey && e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, 1);
+                      }
+                    }}
+                    title={`${lane.name} (drag or Alt+↑/↓ to reorder)`}
                     onClick={() => {
                       onSelectLane(lane.id);
                       onCloseMobile();
                     }}
                     aria-current={active ? 'page' : undefined}
-                    className="lanes-density-row flex w-full items-center gap-2.5 rounded-[8px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
-                    style={{ backgroundColor: active ? 'var(--l-selected)' : 'transparent' }}
+                    className="group lanes-density-row flex w-full items-center gap-2 rounded-[8px] px-1.5 py-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
+                    style={{
+                      backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                      boxShadow: isDropTarget ? 'inset 0 2px 0 var(--l-accent)' : undefined,
+                      opacity: draggingItem?.id === lane.id ? 0.55 : 1,
+                    }}
                   >
+                    <GripVertical size={11} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
                     <LaneTile color={lane.color} icon={lane.icon} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-[14px]" style={{ color: 'var(--l-text)', fontWeight: active ? 500 : 400 }}>
                       {lane.name}
@@ -362,19 +449,57 @@ export function RailSidebar({
             <div className="space-y-0.5 pt-0.5">
               {otherLanes.map((lane) => {
                 const active = place === 'lanes' && activeLaneId === lane.id;
+                const isDropTarget = draggingItem?.kind === 'lane' && dropTargetId === lane.id && draggingItem.id !== lane.id;
                 return (
                   <button
                     key={lane.id}
                     type="button"
-                    title={lane.name}
+                    draggable={Boolean(onReorderLanes)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', `lane:${lane.id}`);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggingItem({ kind: 'lane', id: lane.id });
+                    }}
+                    onDragOver={(e) => {
+                      if (draggingItem?.kind !== 'lane') return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDropTargetId(lane.id);
+                    }}
+                    onDragLeave={() => setDropTargetId((curr) => (curr === lane.id ? null : curr))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggingItem?.kind === 'lane') onReorderLanes?.(draggingItem.id, lane.id);
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingItem(null);
+                      setDropTargetId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.altKey && e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, -1);
+                      } else if (e.altKey && e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        onMoveLaneStep?.(lane.id, 1);
+                      }
+                    }}
+                    title={`${lane.name} (drag or Alt+↑/↓ to reorder)`}
                     onClick={() => {
                       onSelectLane(lane.id);
                       onCloseMobile();
                     }}
                     aria-current={active ? 'page' : undefined}
-                    className="lanes-density-row flex w-full items-center gap-2.5 rounded-[8px] px-2 text-left transition-colors hover:bg-[var(--l-hover)]"
-                    style={{ backgroundColor: active ? 'var(--l-selected)' : 'transparent' }}
+                    className="group lanes-density-row flex w-full items-center gap-2 rounded-[8px] px-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
+                    style={{
+                      backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                      boxShadow: isDropTarget ? 'inset 0 2px 0 var(--l-accent)' : undefined,
+                      opacity: draggingItem?.id === lane.id ? 0.55 : 1,
+                    }}
                   >
+                    <GripVertical size={11} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
                     <LaneTile color={lane.color} icon={lane.icon} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-[14px]" style={{ color: 'var(--l-text)', fontWeight: active ? 500 : 400 }}>
                       {lane.name}
@@ -393,7 +518,7 @@ export function RailSidebar({
           </CollapsibleRegion>
         </div>
 
-        {/* Bots */}
+        {/* Bots / Agents */}
         <div className="mt-4">
           <div className="flex items-center justify-between px-2 py-1 text-[12px] font-medium" style={{ color: 'var(--l-muted)' }}>
             <span>Bots</span>
@@ -403,18 +528,57 @@ export function RailSidebar({
             {bots.map((bot) => {
               const active = place === 'bots' && activeBotId === bot.id;
               const pendingSug = bot.suggestions.filter((s) => s.status === 'pending').length;
+              const isDropTarget = draggingItem?.kind === 'bot' && dropTargetId === bot.id && draggingItem.id !== bot.id;
               return (
                 <button
                   key={bot.id}
                   type="button"
+                  draggable={Boolean(onReorderBots)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', `bot:${bot.id}`);
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggingItem({ kind: 'bot', id: bot.id });
+                  }}
+                  onDragOver={(e) => {
+                    if (draggingItem?.kind !== 'bot') return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDropTargetId(bot.id);
+                  }}
+                  onDragLeave={() => setDropTargetId((curr) => (curr === bot.id ? null : curr))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggingItem?.kind === 'bot') onReorderBots?.(draggingItem.id, bot.id);
+                    setDraggingItem(null);
+                    setDropTargetId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingItem(null);
+                    setDropTargetId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.altKey && e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      onMoveBotStep?.(bot.id, -1);
+                    } else if (e.altKey && e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      onMoveBotStep?.(bot.id, 1);
+                    }
+                  }}
+                  title={`${bot.name} (drag or Alt+↑/↓ to reorder)`}
                   onClick={() => {
                     onSelectBot(bot.id);
                     onCloseMobile();
                   }}
                   aria-current={active ? 'page' : undefined}
-                  className="flex h-9 w-full items-center gap-2.5 rounded-[8px] px-2 text-left transition-colors hover:bg-[var(--l-hover)]"
-                  style={{ backgroundColor: active ? 'var(--l-selected)' : 'transparent' }}
+                  className="group flex h-9 w-full items-center gap-2 rounded-[8px] px-1.5 text-left transition-colors hover:bg-[var(--l-hover)]"
+                  style={{
+                    backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                    boxShadow: isDropTarget ? 'inset 0 2px 0 var(--l-accent)' : undefined,
+                    opacity: draggingItem?.id === bot.id ? 0.55 : 1,
+                  }}
                 >
+                  <GripVertical size={11} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
                   <AgentGlyph agentId={bot.agentId} size="sm" />
                   <span className="min-w-0 flex-1 truncate text-[14px]" style={{ color: 'var(--l-text)', fontWeight: active ? 500 : 400 }}>
                     {bot.name}

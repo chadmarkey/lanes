@@ -9,6 +9,12 @@ import {
   sanitizeTerminalSettings,
 } from './terminalConfig';
 import {
+  applyIdOrder,
+  moveIdByStep,
+  reorderIds,
+  sanitizeWorkspaceLayout,
+} from './workspaceLayout';
+import {
   GEMINI_CHAT_MODELS,
   buildBreadcrumbs,
   formatViewHash,
@@ -634,4 +640,28 @@ test('sanitizeAppearanceSettings accepts Paper Shaders and React Bits live backg
   assert.equal(paper.shader, 'paper-mesh');
   const rb = sanitizeAppearanceSettings({ shader: 'rb-silk' });
   assert.equal(rb.shader, 'rb-silk');
+});
+
+test('workspaceLayout reorders lanes/bots cleanly and validates dock positions', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(reorderIds(ids, 'c', 'a'), ['c', 'a', 'b', 'd']);
+  assert.deepEqual(moveIdByStep(ids, 'b', -1), ['b', 'a', 'c', 'd']);
+  assert.deepEqual(moveIdByStep(ids, 'd', 1), ['a', 'b', 'c', 'd']);
+
+  const ordered = applyIdOrder([{ id: 'a' }, { id: 'b' }, { id: 'c' }], ['c', 'a']);
+  assert.deepEqual(
+    ordered.map((x) => x.id),
+    ['c', 'a', 'b']
+  );
+
+  const layout = sanitizeWorkspaceLayout({
+    terminalDock: 'right',
+    workerDock: 'left',
+    laneOrder: ['b', 'a', 'b'],
+    botOrder: ['bot-2', 'bot-1'],
+  });
+  assert.equal(layout.terminalDock, 'right');
+  assert.equal(layout.workerDock, 'left');
+  assert.deepEqual(layout.laneOrder, ['b', 'a']);
+  assert.deepEqual(layout.botOrder, ['bot-2', 'bot-1']);
 });

@@ -27,6 +27,14 @@ import {
   saveTerminalSettings,
   type TerminalSettings,
 } from './lib/terminalConfig';
+import {
+  applyIdOrder,
+  loadWorkspaceLayout,
+  moveIdByStep,
+  reorderIds,
+  saveWorkspaceLayout,
+  type WorkspaceLayout,
+} from './lib/workspaceLayout';
 import { readJsonSafe, resolveApiUrl } from './lib/tauri';
 import {
   buildBreadcrumbs,
@@ -78,11 +86,16 @@ export function App() {
 
   const [appearance, setAppearance] = useState<AppearanceSettings>(loadInitialAppearance);
   const [terminalSettings, setTerminalSettings] = useState<TerminalSettings>(loadTerminalSettings);
+  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayout>(loadWorkspaceLayout);
   const appIsDark = appearance.theme === 'dark' || appearance.theme.endsWith('-dark');
 
   useEffect(() => {
     saveTerminalSettings(terminalSettings);
   }, [terminalSettings]);
+
+  useEffect(() => {
+    saveWorkspaceLayout(workspaceLayout);
+  }, [workspaceLayout]);
   // The open view lives in the address (#/studio/tokens), so a reload or a shared link lands on it.
   const [initialRoute] = useState(() => parseViewHash(window.location.hash));
   const [place, setPlace] = useState<PlaceId>(initialRoute?.place ?? 'home');
@@ -595,6 +608,52 @@ export function App() {
             ? 'Design Studio'
             : place.charAt(0).toUpperCase() + place.slice(1);
 
+  const orderedLanes = useMemo(
+    () => applyIdOrder(workspace?.lanes ?? [], workspaceLayout.laneOrder),
+    [workspace?.lanes, workspaceLayout.laneOrder]
+  );
+
+  const orderedBots = useMemo(
+    () => applyIdOrder(workspace?.bots ?? [], workspaceLayout.botOrder),
+    [workspace?.bots, workspaceLayout.botOrder]
+  );
+
+  const handleReorderLanes = useCallback(
+    (fromId: string, toId: string) => {
+      const currentIds = orderedLanes.map((l) => l.id);
+      const nextOrder = reorderIds(currentIds, fromId, toId);
+      setWorkspaceLayout((curr) => ({ ...curr, laneOrder: nextOrder }));
+    },
+    [orderedLanes]
+  );
+
+  const handleMoveLaneStep = useCallback(
+    (laneId: string, delta: -1 | 1) => {
+      const currentIds = orderedLanes.map((l) => l.id);
+      const nextOrder = moveIdByStep(currentIds, laneId, delta);
+      setWorkspaceLayout((curr) => ({ ...curr, laneOrder: nextOrder }));
+    },
+    [orderedLanes]
+  );
+
+  const handleReorderBots = useCallback(
+    (fromId: string, toId: string) => {
+      const currentIds = orderedBots.map((b) => b.id);
+      const nextOrder = reorderIds(currentIds, fromId, toId);
+      setWorkspaceLayout((curr) => ({ ...curr, botOrder: nextOrder }));
+    },
+    [orderedBots]
+  );
+
+  const handleMoveBotStep = useCallback(
+    (botId: string, delta: -1 | 1) => {
+      const currentIds = orderedBots.map((b) => b.id);
+      const nextOrder = moveIdByStep(currentIds, botId, delta);
+      setWorkspaceLayout((curr) => ({ ...curr, botOrder: nextOrder }));
+    },
+    [orderedBots]
+  );
+
   return (
     <div
       className="relative isolate flex h-screen w-screen overflow-hidden"
@@ -610,9 +669,9 @@ export function App() {
         place={place}
         activeLaneId={activeLane?.id ?? null}
         activeBotId={activeBotId}
-        lanes={workspace?.lanes ?? []}
+        lanes={orderedLanes}
         branches={workspace?.branches ?? []}
-        bots={workspace?.bots ?? []}
+        bots={orderedBots}
         needs={workspace?.needs ?? []}
         pendingMemoryCount={pendingMemoryCount}
         theme={appearance.theme}
@@ -624,8 +683,8 @@ export function App() {
         onCloseMobile={() => setMobileOpen(false)}
         onSelectPlace={(next) => {
           setPlace(next);
-          if (next === 'lanes' && !activeLaneId && workspace?.lanes[0]) {
-            setActiveLaneId(workspace.lanes[0].id);
+          if (next === 'lanes' && !activeLaneId && orderedLanes[0]) {
+            setActiveLaneId(orderedLanes[0].id);
           }
         }}
         onSelectLane={(id) => openLane(id)}
@@ -642,6 +701,10 @@ export function App() {
         onToggleLightDark={() =>
           setAppearance((curr) => ({ ...curr, theme: toggleThemeMode(curr.theme) }))
         }
+        onReorderLanes={handleReorderLanes}
+        onMoveLaneStep={handleMoveLaneStep}
+        onReorderBots={handleReorderBots}
+        onMoveBotStep={handleMoveBotStep}
       />
 
       <div className="relative z-[1] flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -698,7 +761,7 @@ export function App() {
             <>
               {place === 'home' && (
                 <HomeView
-                  lanes={workspace.lanes}
+                  lanes={orderedLanes}
                   branches={workspace.branches}
                   needs={workspace.needs}
                   services={workspace.services}
@@ -720,6 +783,14 @@ export function App() {
                   isActionPending={isActionPending}
                   terminalSettings={terminalSettings}
                   appIsDark={appIsDark}
+                  terminalDock={workspaceLayout.terminalDock}
+                  workerDock={workspaceLayout.workerDock}
+                  onChangeTerminalDock={(dock) =>
+                    setWorkspaceLayout((curr) => ({ ...curr, terminalDock: dock }))
+                  }
+                  onChangeWorkerDock={(dock) =>
+                    setWorkspaceLayout((curr) => ({ ...curr, workerDock: dock }))
+                  }
                   onChangeTerminalSettings={setTerminalSettings}
                   onOpenTerminalStudio={() => {
                     setStudioTab('terminal');
@@ -748,6 +819,14 @@ export function App() {
                   isActionPending={isActionPending}
                   terminalSettings={terminalSettings}
                   appIsDark={appIsDark}
+                  terminalDock={workspaceLayout.terminalDock}
+                  workerDock={workspaceLayout.workerDock}
+                  onChangeTerminalDock={(dock) =>
+                    setWorkspaceLayout((curr) => ({ ...curr, terminalDock: dock }))
+                  }
+                  onChangeWorkerDock={(dock) =>
+                    setWorkspaceLayout((curr) => ({ ...curr, workerDock: dock }))
+                  }
                   onChangeTerminalSettings={setTerminalSettings}
                   onOpenTerminalStudio={() => {
                     setStudioTab('terminal');
@@ -783,9 +862,9 @@ export function App() {
 
               {place === 'bots' && (
                 <BotsView
-                  bots={workspace.bots}
+                  bots={orderedBots}
                   activeBotId={activeBotId}
-                  lanes={workspace.lanes}
+                  lanes={orderedLanes}
                   branches={workspace.branches}
                   isActionPending={isActionPending}
                   onSelectBot={setActiveBotId}

@@ -9,10 +9,13 @@ import {
   GitBranch,
   GitMerge,
   Globe,
+  GripVertical,
   ListChecks,
   LoaderCircle,
   Lock,
   MessageSquare,
+  PanelLeft,
+  PanelRight,
   Plus,
   Settings2,
   Sparkles,
@@ -31,6 +34,7 @@ import type {
   LaneColorIndex,
 } from '../lib/types';
 import type { TerminalSettings } from '../lib/terminalConfig';
+import type { TerminalDockPosition, WorkerDockPosition } from '../lib/workspaceLayout';
 import {
   AGENTS,
   GEMINI_CHAT_MODELS,
@@ -61,6 +65,10 @@ interface LaneViewProps {
   isActionPending: (key: string) => boolean;
   terminalSettings: TerminalSettings;
   appIsDark: boolean;
+  terminalDock: TerminalDockPosition;
+  workerDock: WorkerDockPosition;
+  onChangeTerminalDock: (dock: TerminalDockPosition) => void;
+  onChangeWorkerDock: (dock: WorkerDockPosition) => void;
   onChangeTerminalSettings: (next: TerminalSettings) => void;
   onOpenTerminalStudio: () => void;
   onSelectBranch: (branchId: string | null) => void;
@@ -377,10 +385,14 @@ const WORKER_DEFAULT_WIDTH = 400;
 
 function WorkerSidePanel({
   branch,
+  dock,
   isPrivate = false,
   isActionPending,
   terminalSettings,
   appIsDark,
+  onChangeDock,
+  onDragPaneStart,
+  onDragPaneEnd,
   onOpenTerminalStudio,
   onNotify,
   onClose,
@@ -392,10 +404,14 @@ function WorkerSidePanel({
   setPanelWidth,
 }: {
   branch: Branch;
+  dock: WorkerDockPosition;
   isPrivate?: boolean;
   isActionPending: (key: string) => boolean;
   terminalSettings: TerminalSettings;
   appIsDark: boolean;
+  onChangeDock: (dock: WorkerDockPosition) => void;
+  onDragPaneStart?: () => void;
+  onDragPaneEnd?: () => void;
   onOpenTerminalStudio: () => void;
   onNotify?: (msg: string, tone?: 'info' | 'error') => void;
   onClose: () => void;
@@ -446,7 +462,8 @@ function WorkerSidePanel({
 
   function handleResizePointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (dragPointerIdRef.current !== e.pointerId) return;
-    const delta = dragStartXRef.current - e.clientX;
+    const rawDelta = dragStartXRef.current - e.clientX;
+    const delta = dock === 'left' ? -rawDelta : rawDelta;
     const maxAllowed = Math.min(WORKER_MAX_WIDTH, Math.max(WORKER_MIN_WIDTH, window.innerWidth - 360));
     const next = Math.max(WORKER_MIN_WIDTH, Math.min(maxAllowed, dragStartWidthRef.current + delta));
     setPanelWidth(Math.round(next));
@@ -517,33 +534,43 @@ function WorkerSidePanel({
     await send(false);
   }
 
+  const resizeDivider = (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize branch panel"
+      aria-valuemin={WORKER_MIN_WIDTH}
+      aria-valuemax={WORKER_MAX_WIDTH}
+      aria-valuenow={panelWidth}
+      tabIndex={0}
+      data-dragging={dragging ? 'true' : 'false'}
+      title="Drag to resize branch panel (or use Left/Right arrow keys)"
+      onPointerDown={handleResizePointerDown}
+      onPointerMove={handleResizePointerMove}
+      onPointerUp={handleResizePointerEnd}
+      onPointerCancel={handleResizePointerEnd}
+      onLostPointerCapture={() => {
+        dragPointerIdRef.current = null;
+        setDragging(false);
+      }}
+      onDoubleClick={() => setPanelWidth(WORKER_DEFAULT_WIDTH)}
+      onKeyDown={handleResizeKeyDown}
+      className="lanes-resize-handle hidden lg:block"
+    />
+  );
+
   return (
-    <div className="flex h-full w-full lg:w-auto lg:shrink-0">
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize branch panel"
-        aria-valuemin={WORKER_MIN_WIDTH}
-        aria-valuemax={WORKER_MAX_WIDTH}
-        aria-valuenow={panelWidth}
-        tabIndex={0}
-        data-dragging={dragging ? 'true' : 'false'}
-        title="Drag to resize branch panel (or use Left/Right arrow keys)"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
-        onLostPointerCapture={() => {
-          dragPointerIdRef.current = null;
-          setDragging(false);
-        }}
-        onDoubleClick={() => setPanelWidth(WORKER_DEFAULT_WIDTH)}
-        onKeyDown={handleResizeKeyDown}
-        className="lanes-resize-handle hidden lg:block"
-      />
+    <div
+      className={`flex h-full w-full lg:w-auto lg:shrink-0 ${
+        dock === 'left' ? 'order-first' : 'order-last'
+      }`}
+    >
+      {dock === 'right' && resizeDivider}
       <aside
         aria-label={`Branch ${branch.title}`}
-        className="flex h-full w-full flex-col border-l lg:w-[var(--worker-panel-w)] lg:shrink-0"
+        className={`flex h-full w-full flex-col lg:w-[var(--worker-panel-w)] lg:shrink-0 ${
+          dock === 'left' ? 'border-r' : 'border-l'
+        }`}
         style={
           {
             backgroundColor: 'var(--l-list)',
@@ -553,32 +580,60 @@ function WorkerSidePanel({
           } as React.CSSProperties
         }
       >
-      {/* Header */}
+      {/* Draggable Header (drag to Left or Right edge to move worker pane) */}
       <div
-        className="flex items-start justify-between gap-2 border-b px-4 py-3"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('application/x-lanes-pane', 'worker');
+          e.dataTransfer.effectAllowed = 'move';
+          onDragPaneStart?.();
+        }}
+        onDragEnd={() => onDragPaneEnd?.()}
+        title="Drag to move worker panel to left or right"
+        className="flex cursor-grab items-start justify-between gap-2 border-b px-3 py-3 active:cursor-grabbing"
         style={{ borderColor: 'var(--l-line)' }}
       >
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <StatusMark status={branch.status} />
-            <h2 className="m-0 truncate text-[15px] font-semibold" style={{ color: 'var(--l-text)' }}>
-              {branch.title}
-            </h2>
+        <div className="flex min-w-0 items-start gap-1.5">
+          <GripVertical
+            size={13}
+            className="mt-1 shrink-0 opacity-60"
+            style={{ color: 'var(--l-muted)' }}
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <StatusMark status={branch.status} />
+              <h2 className="m-0 truncate text-[15px] font-semibold" style={{ color: 'var(--l-text)' }}>
+                {branch.title}
+              </h2>
+            </div>
+            <p className="mt-0.5 mb-0 truncate text-[12px] tabular-nums" style={{ color: 'var(--l-muted)' }}>
+              {branch.gitBranch} · {replyModelLabel} · {branch.age}
+            </p>
           </div>
-          <p className="mt-0.5 mb-0 truncate text-[12px] tabular-nums" style={{ color: 'var(--l-muted)' }}>
-            {branch.gitBranch} · {replyModelLabel} · {branch.age}
-          </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close branch panel"
-          aria-label="Close branch panel"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--l-hover)]"
-          style={{ color: 'var(--l-muted)' }}
-        >
-          <X size={15} />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => onChangeDock(dock === 'right' ? 'left' : 'right')}
+            title={dock === 'right' ? 'Move worker panel to left' : 'Move worker panel to right'}
+            aria-label={dock === 'right' ? 'Move worker panel to left' : 'Move worker panel to right'}
+            className="hidden h-7 w-7 items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--l-hover)] lg:inline-flex"
+            style={{ color: 'var(--l-muted)' }}
+          >
+            {dock === 'right' ? <PanelLeft size={14} /> : <PanelRight size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close branch panel"
+            aria-label="Close branch panel"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--l-hover)]"
+            style={{ color: 'var(--l-muted)' }}
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -935,6 +990,7 @@ function WorkerSidePanel({
         </div>
       </div>
     </aside>
+    {dock === 'left' && resizeDivider}
     </div>
   );
 }
@@ -949,6 +1005,10 @@ export function LaneView({
   isActionPending,
   terminalSettings,
   appIsDark,
+  terminalDock,
+  workerDock,
+  onChangeTerminalDock,
+  onChangeWorkerDock,
   onChangeTerminalSettings,
   onOpenTerminalStudio,
   onSelectBranch,
@@ -964,6 +1024,8 @@ export function LaneView({
 }: LaneViewProps) {
   const [workerPanelWidth, setWorkerPanelWidth] = useState(WORKER_DEFAULT_WIDTH);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
+  const [draggingPane, setDraggingPane] = useState<'terminal' | 'worker' | null>(null);
+  const [hoverDropZone, setHoverDropZone] = useState<'left' | 'right' | 'bottom' | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Ctrl+` toggles the bottom Ghostty terminal drawer on any lane
@@ -1059,10 +1121,30 @@ export function LaneView({
     );
   }
 
+  const terminalIsSide = terminalDock === 'left' || terminalDock === 'right';
+
+  function handlePaneDrop(zone: 'left' | 'right' | 'bottom') {
+    if (draggingPane === 'terminal') {
+      onChangeTerminalDock(zone);
+      onNotify?.(`Terminal docked to ${zone}`);
+    } else if (draggingPane === 'worker' && (zone === 'left' || zone === 'right')) {
+      onChangeWorkerDock(zone);
+      onNotify?.(`Worker panel moved to ${zone}`);
+    }
+    setDraggingPane(null);
+    setHoverDropZone(null);
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
-      {/* Main thread column */}
-      <div className={`flex min-w-0 flex-1 flex-col ${activeBranch ? 'hidden lg:flex' : 'flex'}`}>
+    <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
+      {/* Main thread + dockable Ghostty terminal wrapper (switches flex-col <-> flex-row without remounting shell) */}
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 overflow-hidden ${
+          terminalIsSide ? 'flex-row' : 'flex-col'
+        } ${activeBranch ? 'hidden lg:flex' : 'flex'}`}
+      >
+        {/* Main thread column */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Thread header */}
         <header
           className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-4 md:px-6"
@@ -1338,14 +1420,25 @@ export function LaneView({
             onSend={onSendMessage}
           />
         </div>
+        </div>
 
-        {/* Collapsible lane bottom Ghostty terminal drawer */}
+        {/* Dockable lane Ghostty terminal (Left / Bottom / Right — keeps zsh live across dock changes) */}
         {!isAssistant && lane && (
           <LaneTerminalDrawer
             open={terminalDrawerOpen}
+            dock={terminalDock}
             laneName={lane.name}
             settings={terminalSettings}
             appIsDark={appIsDark}
+            onChangeDock={(nextDock) => {
+              onChangeTerminalDock(nextDock);
+              onNotify?.(`Terminal docked to ${nextDock}`);
+            }}
+            onDragPaneStart={() => setDraggingPane('terminal')}
+            onDragPaneEnd={() => {
+              setDraggingPane(null);
+              setHoverDropZone(null);
+            }}
             onChangeSettings={onChangeTerminalSettings}
             onClose={() => setTerminalDrawerOpen(false)}
             onOpenStudio={onOpenTerminalStudio}
@@ -1354,17 +1447,27 @@ export function LaneView({
         )}
       </div>
 
-      {/* Worker side panel */}
+      {/* Worker side panel (dockable Left or Right) */}
       {activeBranch && (
         <WorkerSidePanel
           key={activeBranch.id}
           branch={activeBranch}
+          dock={workerDock}
           panelWidth={workerPanelWidth}
           setPanelWidth={setWorkerPanelWidth}
           isPrivate={lane?.isPrivate}
           isActionPending={isActionPending}
           terminalSettings={terminalSettings}
           appIsDark={appIsDark}
+          onChangeDock={(nextDock) => {
+            onChangeWorkerDock(nextDock);
+            onNotify?.(`Worker panel moved to ${nextDock}`);
+          }}
+          onDragPaneStart={() => setDraggingPane('worker')}
+          onDragPaneEnd={() => {
+            setDraggingPane(null);
+            setHoverDropZone(null);
+          }}
           onOpenTerminalStudio={onOpenTerminalStudio}
           onNotify={onNotify}
           onClose={() => onSelectBranch(null)}
@@ -1373,6 +1476,48 @@ export function LaneView({
           onResolveDecision={onResolveDecision}
           onMergeBranch={onMergeBranch}
         />
+      )}
+
+      {/* VS Code / Antigravity-style pane docking drop zones while dragging a pane header */}
+      {draggingPane && (
+        <div className="pointer-events-none absolute inset-0 z-30">
+          {(
+            [
+              { zone: 'left' as const, label: 'Dock Left', cls: 'left-2 top-14 bottom-2 w-[26%] max-w-[260px]' },
+              { zone: 'right' as const, label: 'Dock Right', cls: 'right-2 top-14 bottom-2 w-[26%] max-w-[260px]' },
+              ...(draggingPane === 'terminal'
+                ? [{ zone: 'bottom' as const, label: 'Dock Bottom', cls: 'left-[28%] right-[28%] bottom-2 h-[30%] max-h-[220px]' }]
+                : []),
+            ] as const
+          ).map((target) => {
+            const activeZone = hoverDropZone === target.zone;
+            return (
+              <div
+                key={target.zone}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setHoverDropZone(target.zone);
+                }}
+                onDragLeave={() => setHoverDropZone((curr) => (curr === target.zone ? null : curr))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handlePaneDrop(target.zone);
+                }}
+                className={`pointer-events-auto absolute flex items-center justify-center rounded-[12px] border-2 border-dashed text-[13px] font-semibold transition-colors ${target.cls}`}
+                style={{
+                  borderColor: 'var(--l-accent)',
+                  backgroundColor: activeZone
+                    ? 'color-mix(in srgb, var(--l-accent) 22%, var(--l-bg))'
+                    : 'color-mix(in srgb, var(--l-accent) 10%, transparent)',
+                  color: 'var(--l-text)',
+                }}
+              >
+                {target.label}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {/* New Branch Modal */}

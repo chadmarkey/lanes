@@ -1,16 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import { Palette, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
+import {
+  GripHorizontal,
+  GripVertical,
+  Palette,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
+  Plus,
+  Terminal as TerminalIcon,
+  X,
+} from 'lucide-react';
 import {
   TERMINAL_SHADER_PRESETS,
   TERMINAL_THEME_PRESETS,
   type TerminalSettings,
   type TerminalShaderId,
 } from '../lib/terminalConfig';
+import type { TerminalDockPosition } from '../lib/workspaceLayout';
 import { GhosttyTerminal } from './GhosttyTerminal';
 
 const DRAWER_MIN_HEIGHT = 180;
 const DRAWER_MAX_HEIGHT = 520;
 const DRAWER_DEFAULT_HEIGHT = 270;
+
+const SIDE_MIN_WIDTH = 300;
+const SIDE_MAX_WIDTH = 680;
+const SIDE_DEFAULT_WIDTH = 440;
 
 interface TerminalTabItem {
   id: string;
@@ -19,9 +34,13 @@ interface TerminalTabItem {
 
 interface LaneTerminalDrawerProps {
   open: boolean;
+  dock: TerminalDockPosition;
   laneName: string;
   settings: TerminalSettings;
   appIsDark: boolean;
+  onChangeDock: (dock: TerminalDockPosition) => void;
+  onDragPaneStart?: () => void;
+  onDragPaneEnd?: () => void;
   onChangeSettings: (next: TerminalSettings) => void;
   onClose: () => void;
   onOpenStudio: () => void;
@@ -30,22 +49,29 @@ interface LaneTerminalDrawerProps {
 
 export function LaneTerminalDrawer({
   open,
+  dock,
   laneName,
   settings,
   appIsDark,
+  onChangeDock,
+  onDragPaneStart,
+  onDragPaneEnd,
   onChangeSettings,
   onClose,
   onOpenStudio,
   onNotify,
 }: LaneTerminalDrawerProps) {
   const [height, setHeight] = useState(DRAWER_DEFAULT_HEIGHT);
+  const [width, setWidth] = useState(SIDE_DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
   const [tabs, setTabs] = useState<TerminalTabItem[]>([{ id: 'shell-1', label: 'zsh 1' }]);
   const [activeTabId, setActiveTabId] = useState('shell-1');
   const nextTabNumRef = useRef(2);
   const pointerIdRef = useRef<number | null>(null);
-  const startYRef = useRef(0);
-  const startHeightRef = useRef(DRAWER_DEFAULT_HEIGHT);
+  const startCoordRef = useRef(0);
+  const startSizeRef = useRef(DRAWER_DEFAULT_HEIGHT);
+
+  const isSide = dock === 'left' || dock === 'right';
 
   useEffect(() => {
     if (!dragging) return;
@@ -62,17 +88,24 @@ export function LaneTerminalDrawer({
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (pointerIdRef.current !== null) return;
     pointerIdRef.current = e.pointerId;
-    startYRef.current = e.clientY;
-    startHeightRef.current = height;
+    startCoordRef.current = isSide ? e.clientX : e.clientY;
+    startSizeRef.current = isSide ? width : height;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDragging(true);
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (pointerIdRef.current !== e.pointerId) return;
-    const delta = startYRef.current - e.clientY;
-    const maxAllowed = Math.min(DRAWER_MAX_HEIGHT, Math.max(DRAWER_MIN_HEIGHT, window.innerHeight - 240));
-    setHeight(Math.round(Math.max(DRAWER_MIN_HEIGHT, Math.min(maxAllowed, startHeightRef.current + delta))));
+    if (isSide) {
+      const rawDelta = e.clientX - startCoordRef.current;
+      const delta = dock === 'right' ? -rawDelta : rawDelta;
+      const maxAllowed = Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, window.innerWidth - 340));
+      setWidth(Math.round(Math.max(SIDE_MIN_WIDTH, Math.min(maxAllowed, startSizeRef.current + delta))));
+    } else {
+      const delta = startCoordRef.current - e.clientY;
+      const maxAllowed = Math.min(DRAWER_MAX_HEIGHT, Math.max(DRAWER_MIN_HEIGHT, window.innerHeight - 240));
+      setHeight(Math.round(Math.max(DRAWER_MIN_HEIGHT, Math.min(maxAllowed, startSizeRef.current + delta))));
+    }
   }
 
   function handlePointerEnd(e: React.PointerEvent<HTMLDivElement>) {
@@ -85,15 +118,28 @@ export function LaneTerminalDrawer({
   }
 
   function handleResizeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHeight((h) => Math.min(DRAWER_MAX_HEIGHT, h + 24));
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHeight((h) => Math.max(DRAWER_MIN_HEIGHT, h - 24));
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      setHeight(DRAWER_DEFAULT_HEIGHT);
+    if (isSide) {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setWidth((w) => Math.max(SIDE_MIN_WIDTH, Math.min(SIDE_MAX_WIDTH, w + (dock === 'right' ? 24 : -24))));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setWidth((w) => Math.max(SIDE_MIN_WIDTH, Math.min(SIDE_MAX_WIDTH, w + (dock === 'right' ? -24 : 24))));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setWidth(SIDE_DEFAULT_WIDTH);
+      }
+    } else {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHeight((h) => Math.min(DRAWER_MAX_HEIGHT, h + 24));
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHeight((h) => Math.max(DRAWER_MIN_HEIGHT, h - 24));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setHeight(DRAWER_DEFAULT_HEIGHT);
+      }
     }
   }
 
@@ -116,49 +162,77 @@ export function LaneTerminalDrawer({
     }
   }
 
-  return (
+  const resizeHandle = (
+    <div
+      role="separator"
+      aria-orientation={isSide ? 'vertical' : 'horizontal'}
+      aria-label="Resize terminal panel"
+      aria-valuemin={isSide ? SIDE_MIN_WIDTH : DRAWER_MIN_HEIGHT}
+      aria-valuemax={isSide ? SIDE_MAX_WIDTH : DRAWER_MAX_HEIGHT}
+      aria-valuenow={isSide ? width : height}
+      tabIndex={0}
+      data-dragging={dragging ? 'true' : 'false'}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onDoubleClick={() => (isSide ? setWidth(SIDE_DEFAULT_WIDTH) : setHeight(DRAWER_DEFAULT_HEIGHT))}
+      onKeyDown={handleResizeKeyDown}
+      title={
+        isSide
+          ? 'Drag to resize terminal width (or use Left/Right arrows)'
+          : 'Drag to resize terminal height (or use Up/Down arrows)'
+      }
+      className={
+        isSide
+          ? 'lanes-resize-handle hidden lg:block'
+          : 'h-1.5 w-full shrink-0 cursor-row-resize transition-colors hover:bg-[var(--l-accent-soft)]'
+      }
+    />
+  );
+
+  const panelBody = (
     <section
-      aria-label={`${laneName} Ghostty terminal drawer`}
-      className="flex shrink-0 flex-col border-t"
+      aria-label={`${laneName} Ghostty terminal`}
+      className={`flex min-h-0 flex-1 flex-col ${
+        dock === 'bottom' ? 'border-t' : dock === 'right' ? 'border-l' : 'border-r'
+      }`}
       style={{
-        height: `${height}px`,
+        height: isSide ? '100%' : `${height}px`,
+        width: isSide ? `${width}px` : '100%',
         borderColor: 'var(--l-line)',
         backgroundColor: 'var(--l-panel)',
-        transition: dragging ? 'none' : 'height 140ms var(--l-hover-ease)',
+        transition: dragging ? 'none' : isSide ? 'width 140ms var(--l-hover-ease)' : 'height 140ms var(--l-hover-ease)',
       }}
     >
-      {/* Horizontal resize grip */}
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize terminal drawer"
-        aria-valuemin={DRAWER_MIN_HEIGHT}
-        aria-valuemax={DRAWER_MAX_HEIGHT}
-        aria-valuenow={height}
-        tabIndex={0}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-        onDoubleClick={() => setHeight(DRAWER_DEFAULT_HEIGHT)}
-        onKeyDown={handleResizeKeyDown}
-        title="Drag to resize terminal (or use Up/Down arrows)"
-        className="h-1.5 w-full cursor-row-resize transition-colors hover:bg-[var(--l-accent-soft)]"
-      />
+      {dock === 'bottom' && resizeHandle}
 
-      {/* Drawer tab bar + quick Ghostty theme & shader pickers */}
+      {/* Draggable header bar (drag to Left / Right / Bottom to re-dock like VS Code / Antigravity) */}
       <div
-        className="flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('application/x-lanes-pane', 'terminal');
+          e.dataTransfer.effectAllowed = 'move';
+          onDragPaneStart?.();
+        }}
+        onDragEnd={() => onDragPaneEnd?.()}
+        className="flex h-9 shrink-0 cursor-grab items-center justify-between gap-2 border-b px-2.5 active:cursor-grabbing"
         style={{ borderColor: 'var(--l-line)', backgroundColor: 'var(--l-panel)' }}
+        title="Drag this bar to dock terminal on Left, Right, or Bottom"
       >
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-          <TerminalIcon size={13} style={{ color: 'var(--l-accent)' }} aria-hidden="true" />
+          {isSide ? (
+            <GripVertical size={12} className="shrink-0 opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
+          ) : (
+            <GripHorizontal size={12} className="shrink-0 opacity-60" style={{ color: 'var(--l-muted)' }} aria-hidden="true" />
+          )}
+          <TerminalIcon size={13} className="shrink-0" style={{ color: 'var(--l-accent)' }} aria-hidden="true" />
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             return (
               <div
                 key={tab.id}
-                className="inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium"
                 style={{
                   backgroundColor: active ? 'var(--l-selected)' : 'transparent',
                   color: active ? 'var(--l-text)' : 'var(--l-muted)',
@@ -187,63 +261,103 @@ export function LaneTerminalDrawer({
             onClick={addTab}
             title="New terminal tab"
             aria-label="New terminal tab"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--l-hover)]"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--l-hover)]"
             style={{ color: 'var(--l-muted)' }}
           >
             <Plus size={13} />
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           {/* Quick theme picker */}
-          <select
-            aria-label="Terminal theme"
-            value={settings.themeId}
-            onChange={(e) =>
-              onChangeSettings({
-                ...settings,
-                themeId: e.target.value,
-                followAppMode: false,
-                customOverrides: {},
-              })
-            }
-            className="hidden h-6 rounded-[6px] border px-1.5 text-[12px] sm:block"
-            style={{
-              backgroundColor: 'var(--l-bg)',
-              borderColor: 'var(--l-line)',
-              color: 'var(--l-text)',
-            }}
-          >
-            {TERMINAL_THEME_PRESETS.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          {!isSide && (
+            <select
+              aria-label="Terminal theme"
+              value={settings.themeId}
+              onChange={(e) =>
+                onChangeSettings({
+                  ...settings,
+                  themeId: e.target.value,
+                  followAppMode: false,
+                  customOverrides: {},
+                })
+              }
+              className="hidden h-6 rounded-[6px] border px-1.5 text-[12px] sm:block"
+              style={{
+                backgroundColor: 'var(--l-bg)',
+                borderColor: 'var(--l-line)',
+                color: 'var(--l-text)',
+              }}
+            >
+              {TERMINAL_THEME_PRESETS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           {/* Quick shader picker */}
-          <select
-            aria-label="Terminal shader"
-            value={settings.shaderId === 'local-glsl' || settings.shaderId === 'custom-glsl' ? 'none' : settings.shaderId}
-            onChange={(e) =>
-              onChangeSettings({
-                ...settings,
-                shaderId: e.target.value as TerminalShaderId,
-              })
-            }
-            className="hidden h-6 rounded-[6px] border px-1.5 text-[12px] md:block"
-            style={{
-              backgroundColor: 'var(--l-bg)',
-              borderColor: 'var(--l-line)',
-              color: 'var(--l-text)',
-            }}
+          {!isSide && (
+            <select
+              aria-label="Terminal shader"
+              value={settings.shaderId === 'local-glsl' || settings.shaderId === 'custom-glsl' ? 'none' : settings.shaderId}
+              onChange={(e) =>
+                onChangeSettings({
+                  ...settings,
+                  shaderId: e.target.value as TerminalShaderId,
+                })
+              }
+              className="hidden h-6 rounded-[6px] border px-1.5 text-[12px] lg:block"
+              style={{
+                backgroundColor: 'var(--l-bg)',
+                borderColor: 'var(--l-line)',
+                color: 'var(--l-text)',
+              }}
+            >
+              {TERMINAL_SHADER_PRESETS.map((sh) => (
+                <option key={sh.id} value={sh.id}>
+                  Shader: {sh.label}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Dock position switcher: Left / Bottom / Right */}
+          <div
+            role="group"
+            aria-label="Terminal dock position"
+            className="hidden items-center rounded-[6px] border p-0.5 sm:inline-flex"
+            style={{ borderColor: 'var(--l-line)', backgroundColor: 'var(--l-bg)' }}
           >
-            {TERMINAL_SHADER_PRESETS.map((sh) => (
-              <option key={sh.id} value={sh.id}>
-                Shader: {sh.label}
-              </option>
-            ))}
-          </select>
+            {(
+              [
+                { id: 'left' as const, label: 'Dock terminal on left', icon: PanelLeft },
+                { id: 'bottom' as const, label: 'Dock terminal at bottom', icon: PanelBottom },
+                { id: 'right' as const, label: 'Dock terminal on right', icon: PanelRight },
+              ] as const
+            ).map((opt) => {
+              const Icon = opt.icon;
+              const active = dock === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={opt.label}
+                  title={opt.label}
+                  onClick={() => onChangeDock(opt.id)}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--l-hover)]"
+                  style={{
+                    backgroundColor: active ? 'var(--l-selected)' : 'transparent',
+                    color: active ? 'var(--l-accent)' : 'var(--l-muted)',
+                  }}
+                >
+                  <Icon size={12} />
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"
@@ -257,14 +371,14 @@ export function LaneTerminalDrawer({
             }}
           >
             <Palette size={11} aria-hidden="true" />
-            <span>Studio</span>
+            <span className="hidden sm:inline">Studio</span>
           </button>
 
           <button
             type="button"
             onClick={onClose}
-            title="Hide terminal drawer (⌃`)"
-            aria-label="Hide terminal drawer"
+            title="Hide terminal (⌃`)"
+            aria-label="Hide terminal"
             className="inline-flex h-6 w-6 items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--l-hover)]"
             style={{ color: 'var(--l-muted)' }}
           >
@@ -273,7 +387,7 @@ export function LaneTerminalDrawer({
         </div>
       </div>
 
-      {/* Active tab terminals (kept mounted while open so running processes survive tab switches) */}
+      {/* Active tab terminals (stay mounted across tab & dock switches so running zsh never resets) */}
       <div className="relative min-h-0 flex-1">
         {tabs.map((tab) => (
           <div
@@ -295,4 +409,18 @@ export function LaneTerminalDrawer({
       </div>
     </section>
   );
+
+  if (isSide) {
+    return (
+      <div
+        className={`flex h-full shrink-0 ${dock === 'left' ? 'order-first' : 'order-last'}`}
+      >
+        {dock === 'right' && resizeHandle}
+        {panelBody}
+        {dock === 'left' && resizeHandle}
+      </div>
+    );
+  }
+
+  return panelBody;
 }
