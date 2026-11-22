@@ -1,0 +1,42 @@
+{
+  "name": "lanes",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "Chad Markey",
+  "type": "module",
+  "description": "Open-source multi-lane AI workspace with embedded Ghostty terminal, WebGL2 shaders, and live backgrounds",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chadmarkey/lanes.git"
+  },
+  "scripts": {
+    "dev": "node server.ts",
+    "start": "NODE_ENV=production node server.ts",
+    "build": "vite build",
+    "lint": "tsc --noEmit",
+    "test": "npx --yes tsx --test src/lib/workbench.test.ts && node --test server.test.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "@paper-design/shaders-react": "^0.0.82",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "express": "^5.3.0",
+    "ghostty-web": "^0.4.0",
+    "lucide-react": "^1.77.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "ws": "^8.23.0"
+  }
+}

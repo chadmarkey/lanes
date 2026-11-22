@@ -1,0 +1,735 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme*="dark"], [data-theme*="dark"] *));
+
+:root {
+  color-scheme: light dark;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Red Hat Display', 'Commissioner', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Commissioner', 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', 'Reddit Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --l-user-radius: 10px;
+  --l-icon-stroke: 1.9;
+  --l-hover-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --l-spring-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --l-row-h: 36px;
+  --l-card-pad: 16px;
+  --l-section-gap: 24px;
+}
+
+/* Theme native browser surfaces (selection & caret) from the active palette */
+::selection {
+  background-color: var(--l-accent-soft);
+  color: var(--l-text);
+}
+
+input,
+textarea {
+  caret-color: var(--l-accent);
+}
+
+/* Tauri desktop shell polish: disable rubber-band bounce & accidental chrome text selection */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--l-bg);
+  color: var(--l-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+aside,
+nav,
+header,
+button,
+[role="tab"],
+[role="toolbar"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+pre,
+code,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Tauri frameless titlebar drag regions */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] select {
+  -webkit-app-region: no-drag;
+}
+
+h1,
+.font-display-lanes {
+  font-family: var(--font-display);
+}
+
+code,
+pre,
+kbd,
+.font-mono,
+.font-mono-lanes {
+  font-family: var(--font-mono);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Single accessible focus ring across all layers */
+:focus-visible {
+  outline: 2px solid var(--l-focus);
+  outline-offset: 2px;
+}
+
+/* Composite input wrappers (search bars & composers) show the focus ring on the outer container */
+.lanes-focus-ring:focus-within {
+  outline: 2px solid var(--l-focus);
+  outline-offset: 2px;
+}
+
+.lanes-focus-ring input:focus-visible,
+.lanes-focus-ring textarea:focus-visible {
+  outline: none;
+}
+
+/* ============================================================================
+   CALM INTERACTIVE FEEDBACK (DESIGN.md: lines & tone layers, no hover halos)
+   ============================================================================ */
+button:not(:disabled):not(.lanes-backdrop),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"],
+label:has(> input[type="file"]) {
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--l-hover-ease),
+    border-color 150ms var(--l-hover-ease),
+    color 150ms var(--l-hover-ease),
+    opacity 150ms var(--l-hover-ease);
+}
+
+button:not(:disabled):not(.lanes-backdrop):active,
+[role="button"]:not([aria-disabled="true"]):active {
+  opacity: 0.92;
+}
+
+/* Tactile press settle on compact action controls (never on full-width rows or backdrops) */
+.lanes-press:not(:disabled) {
+  transition:
+    background-color 140ms var(--l-hover-ease),
+    border-color 140ms var(--l-hover-ease),
+    color 140ms var(--l-hover-ease),
+    opacity 140ms var(--l-hover-ease),
+    transform 120ms var(--l-hover-ease);
+}
+
+.lanes-press:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* ============================================================================
+   PURPOSEFUL MOTION (Step 4: panels, collapsible drawers, overlays, state swap)
+   No page-load choreography; fast exits; reduced-motion preserves state color/opacity.
+   ============================================================================ */
+
+/* Smooth collapsible 204px sidebar panel */
+.lanes-panel-shell {
+  display: grid;
+  grid-template-columns: 204px;
+  transition:
+    grid-template-columns 200ms var(--l-hover-ease),
+    opacity 160ms var(--l-hover-ease);
+  overflow: hidden;
+}
+
+.lanes-panel-shell[data-collapsed="true"] {
+  grid-template-columns: 0px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lanes-panel-shell > * {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Smooth collapsible disclosure drawers (Your lanes, Tool steps, Resolved) */
+.lanes-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 180ms var(--l-hover-ease),
+    opacity 140ms var(--l-hover-ease);
+}
+
+.lanes-disclosure[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.lanes-disclosure > .lanes-disclosure-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.lanes-chevron {
+  transition: transform 150ms var(--l-hover-ease);
+}
+
+.lanes-chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+
+/* Worker panel resize divider */
+.lanes-resize-handle {
+  position: relative;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.lanes-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background-color: transparent;
+  transition: background-color 140ms var(--l-hover-ease);
+}
+
+.lanes-resize-handle:hover::after,
+.lanes-resize-handle:focus-visible::after,
+.lanes-resize-handle[data-dragging="true"]::after {
+  background-color: var(--l-accent);
+}
+
+@keyframes lanes-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes lanes-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes lanes-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes lanes-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes lanes-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lanes-status-pop {
+  0% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lanes-dialog-backdrop {
+  animation: lanes-fade-in 140ms var(--l-hover-ease) both;
+}
+
+.lanes-dialog-surface {
+  animation: lanes-dialog-in 180ms var(--l-hover-ease) both;
+}
+
+.lanes-menu-pop {
+  animation: lanes-menu-in 130ms var(--l-hover-ease) both;
+  transform-origin: bottom left;
+}
+
+.lanes-sheet-in {
+  animation: lanes-sheet-in 200ms var(--l-hover-ease) both;
+}
+
+.lanes-toast-in {
+  animation: lanes-toast-in 170ms var(--l-hover-ease) both;
+}
+
+.lanes-status-swap {
+  animation: lanes-status-pop 260ms var(--l-hover-ease);
+}
+
+/* Icon stroke weight & opt-in subtle hover motion (off by default per DESIGN.md) */
+button:not(.lanes-backdrop) svg,
+a[href] svg,
+[role="button"] svg,
+[role="tab"] svg {
+  stroke-width: var(--l-icon-stroke);
+  transition:
+    transform 150ms var(--l-spring-ease),
+    color 150ms var(--l-hover-ease),
+    opacity 150ms var(--l-hover-ease);
+  transform-origin: center;
+}
+
+/* Opt-in Spring Lift (subtle vertical lift, no rotation wobble) */
+:root[data-icon-motion="spring"] .lanes-rail-btn:not(:disabled):hover svg:not(.lanes-spin) {
+  transform: translateY(-1px) scale(1.06);
+}
+
+/* Opt-in Crisp Scale */
+:root[data-icon-motion="crisp"] .lanes-rail-btn:not(:disabled):hover svg:not(.lanes-spin) {
+  transform: scale(1.07);
+}
+
+/* Opt-in Gentle Glide */
+:root[data-icon-motion="glide"] .lanes-rail-btn:not(:disabled):hover svg:not(.lanes-spin) {
+  transform: translateX(1.5px);
+}
+
+/* Icon Pack visual treatments on leftmost rail and nav triggers */
+:root[data-icon-pack="tinted"] .lanes-rail-btn {
+  background-color: color-mix(in srgb, var(--l-accent) 7%, transparent);
+}
+:root[data-icon-pack="tinted"] .lanes-rail-btn:hover {
+  background-color: color-mix(in srgb, var(--l-accent) 16%, transparent);
+}
+
+:root[data-icon-pack="architectural"] .lanes-rail-btn {
+  border: 1px solid color-mix(in srgb, var(--l-line-strong) 45%, transparent);
+  border-radius: calc(var(--l-user-radius) * 0.65);
+}
+
+/* Dynamic component radius presets */
+:root[data-radius="sharp"] .rounded-\[14px\],
+:root[data-radius="sharp"] .rounded-\[12px\] {
+  border-radius: 6px;
+}
+:root[data-radius="sharp"] .rounded-\[10px\],
+:root[data-radius="sharp"] .rounded-\[9px\],
+:root[data-radius="sharp"] .rounded-\[8px\],
+:root[data-radius="sharp"] .rounded-\[7px\],
+:root[data-radius="sharp"] .rounded-\[6px\] {
+  border-radius: 4px;
+}
+
+:root[data-radius="soft"] .rounded-\[14px\] {
+  border-radius: 20px;
+}
+:root[data-radius="soft"] .rounded-\[12px\] {
+  border-radius: 17px;
+}
+:root[data-radius="soft"] .rounded-\[10px\],
+:root[data-radius="soft"] .rounded-\[9px\] {
+  border-radius: 13px;
+}
+:root[data-radius="soft"] .rounded-\[8px\],
+:root[data-radius="soft"] .rounded-\[7px\],
+:root[data-radius="soft"] .rounded-\[6px\] {
+  border-radius: 10px;
+}
+
+/* Dynamic density rhythm via spacing tokens (keeps text sizes crisp & readable) */
+:root[data-density="compact"] {
+  --l-row-h: 32px;
+  --l-card-pad: 12px;
+  --l-section-gap: 18px;
+}
+:root[data-density="airy"] {
+  --l-row-h: 40px;
+  --l-card-pad: 20px;
+  --l-section-gap: 32px;
+}
+
+.lanes-density-row {
+  min-height: var(--l-row-h);
+}
+
+.lanes-density-card {
+  padding: var(--l-card-pad);
+}
+
+/* ============================================================================
+   SURFACE SHADERS & ATMOSPHERE (Behind all UI chrome, cards, inputs & text)
+   ============================================================================ */
+.lanes-shader-layer,
+.lanes-shader-preview {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 240ms var(--l-hover-ease);
+}
+
+/* Live WebGL backgrounds (ShaderCanvas): strictly behind UI chrome and cards,
+   so animations only appear in empty window canvas space. */
+.lanes-shader-canvas {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Keeps bare text blocks (e.g. assistant replies, page titles) on a clean solid
+   surface when a live background shader is active so shaders never cross text. */
+:root[data-live-shader="true"] .lanes-text-surface {
+  background-color: var(--l-bg);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+/* Design Studio cards draw the same background behind the mini app window chrome. */
+.lanes-shader-preview {
+  position: absolute;
+}
+
+:root[data-shader="travertine-grain"] .lanes-shader-layer,
+.lanes-shader-preview[data-shader="travertine-grain"] {
+  opacity: 0.55;
+  background-image:
+    radial-gradient(ellipse at 18% 0%, color-mix(in srgb, var(--l-accent) 6%, transparent) 0%, transparent 55%),
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--l-text) 2.2%, transparent) 0px,
+      transparent 1px,
+      transparent 4px
+    );
+}
+
+:root[data-shader="warm-glow"] .lanes-shader-layer,
+.lanes-shader-preview[data-shader="warm-glow"] {
+  opacity: 0.9;
+  background-image:
+    radial-gradient(ellipse 70% 45% at 22% 0%, color-mix(in srgb, var(--l-accent) 13%, transparent), transparent 70%),
+    radial-gradient(ellipse 55% 40% at 92% 96%, color-mix(in srgb, var(--l-needs) 10%, transparent), transparent 65%);
+}
+
+:root[data-shader="ceramic-sheen"] .lanes-shader-layer,
+.lanes-shader-preview[data-shader="ceramic-sheen"] {
+  opacity: 0.85;
+  background-image: linear-gradient(
+    145deg,
+    color-mix(in srgb, #ffffff 16%, transparent) 0%,
+    transparent 38%,
+    color-mix(in srgb, var(--l-accent) 6%, transparent) 100%
+  );
+}
+
+:root[data-shader="blueprint-grid"] .lanes-shader-layer,
+.lanes-shader-preview[data-shader="blueprint-grid"] {
+  opacity: 0.55;
+  background-size: 28px 28px;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--l-line-strong) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--l-line-strong) 22%, transparent) 1px, transparent 1px);
+}
+
+/* ============================================================================
+   RETRO & CLASSIC THEME CHARACTER (Windows XP Luna, Windows 98, Terminal)
+   ============================================================================ */
+
+/* Windows XP: Luna sky-blue task gradient & iconic warm-amber button hover ring */
+:root[data-theme="xp-light"] nav[aria-label="Breadcrumb"] {
+  background-image: linear-gradient(
+    180deg,
+    #f6f9ff 0%,
+    #e2ecfc 55%,
+    #cedef8 100%
+  );
+}
+
+:root[data-theme="xp-dark"] nav[aria-label="Breadcrumb"] {
+  background-image: linear-gradient(
+    180deg,
+    #2e3748 0%,
+    #212836 55%,
+    #181d27 100%
+  );
+}
+
+:root[data-theme^="xp"] .rounded-\[14px\],
+:root[data-theme^="xp"] .rounded-\[12px\] {
+  border-radius: 6px;
+}
+
+:root[data-theme^="xp"] .rounded-\[10px\],
+:root[data-theme^="xp"] .rounded-\[9px\],
+:root[data-theme^="xp"] .rounded-\[8px\] {
+  border-radius: 4px;
+}
+
+:root[data-theme="xp-light"] button:not(:disabled):hover {
+  box-shadow:
+    inset 0 0 0 1px #f8c668,
+    0 0 0 1px #0054e3,
+    0 3px 10px -3px rgb(0 84 227 / 28%);
+}
+
+:root[data-theme="xp-dark"] button:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 16%),
+    0 0 0 1px color-mix(in srgb, var(--l-accent) 65%, transparent),
+    0 4px 14px -3px color-mix(in srgb, var(--l-accent) 32%, transparent);
+}
+
+/* Windows 98: Classic crisp 2px corners & 3D beveled controls */
+:root[data-theme^="win98"] .rounded-\[14px\],
+:root[data-theme^="win98"] .rounded-\[12px\],
+:root[data-theme^="win98"] .rounded-\[10px\],
+:root[data-theme^="win98"] .rounded-\[9px\],
+:root[data-theme^="win98"] .rounded-\[8px\],
+:root[data-theme^="win98"] .rounded-\[7px\] {
+  border-radius: 2px;
+}
+
+:root[data-theme="win98-light"] button:not(:disabled) {
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080;
+}
+
+:root[data-theme="win98-light"] button:not(:disabled):hover {
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #404040,
+    0 0 0 1px #000080;
+}
+
+:root[data-theme="win98-light"] button:not(:disabled):active {
+  transform: none;
+  box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #ffffff;
+}
+
+:root[data-theme="win98-dark"] button:not(:disabled) {
+  box-shadow: inset 1px 1px 0 #4a5364, inset -1px -1px 0 #0b0d11;
+}
+
+:root[data-theme="win98-dark"] button:not(:disabled):hover {
+  box-shadow:
+    inset 1px 1px 0 #68758c,
+    inset -1px -1px 0 #090b0e,
+    0 0 0 1px var(--l-accent);
+}
+
+/* Terminal: Full monospace typography, crisp 3px borders & subtle CRT scanlines */
+:root[data-theme^="terminal"] {
+  --font-display: var(--font-mono);
+  --font-sans: var(--font-mono);
+}
+
+:root[data-theme^="terminal"] .rounded-\[14px\],
+:root[data-theme^="terminal"] .rounded-\[12px\],
+:root[data-theme^="terminal"] .rounded-\[10px\],
+:root[data-theme^="terminal"] .rounded-\[9px\],
+:root[data-theme^="terminal"] .rounded-\[8px\] {
+  border-radius: 3px;
+}
+
+:root[data-theme="terminal-dark"] .lanes-shader-layer,
+:root[data-theme="terminal-dark"] .lanes-shader-preview {
+  opacity: 0.45;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgb(51 255 102 / 5%) 0px,
+    rgb(51 255 102 / 5%) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+:root[data-theme="terminal-dark"] button:not(:disabled):hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--l-accent) 65%, transparent),
+    0 0 12px -3px color-mix(in srgb, var(--l-accent) 42%, transparent);
+}
+
+/* Thin, unobtrusive native-feeling scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--l-line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@keyframes lanes-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lanes-spin {
+  animation: lanes-spin 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lanes-spin {
+    animation: none;
+  }
+  /* Remove spatial movement while preserving calm opacity & color state feedback */
+  .lanes-dialog-surface,
+  .lanes-menu-pop,
+  .lanes-sheet-in,
+  .lanes-toast-in,
+  .lanes-status-swap {
+    animation: lanes-fade-in 120ms ease-out both;
+  }
+  .lanes-panel-shell,
+  .lanes-disclosure,
+  .lanes-chevron,
+  .lanes-press:not(:disabled) {
+    transition-property: opacity, background-color, border-color, color;
+    transition-duration: 120ms;
+  }
+  .lanes-press:not(:disabled):active {
+    transform: none;
+  }
+}
+
+/* ============================================================================
+   BLOOM (Design Studio → Bloom). A CSS stand-in for a screen-space bloom shader:
+   a web page can't blur its own bright pixels, so bright things get a halo instead.
+   Accent and status fills are set inline, so they are matched by their inline style.
+   ponytail: matching on inline style text only catches fills written as
+   `backgroundColor: 'var(--l-accent)'` (or --l-needs / --l-bad). A `background:` shorthand,
+   a class like bg-[var(--l-accent)], or an element whose inline style already sets
+   box-shadow gets no glow. The general fix is a data-glow hook on the shared buttons/badges.
+   ============================================================================ */
+:root[data-bloom='soft'],
+.lanes-bloom-sample[data-bloom='soft'] {
+  --l-bloom-near: 40%;
+  --l-bloom-far: 14%;
+  --l-bloom-radius: 8px;
+  --l-bloom-text: 28%;
+}
+
+:root[data-bloom='strong'],
+.lanes-bloom-sample[data-bloom='strong'] {
+  --l-bloom-near: 70%;
+  --l-bloom-far: 32%;
+  --l-bloom-radius: 14px;
+  --l-bloom-text: 55%;
+}
+
+:root:is([data-bloom='soft'], [data-bloom='strong']) [style*='background-color: var(--l-accent)'] {
+  box-shadow:
+    0 0 var(--l-bloom-radius) color-mix(in srgb, var(--l-accent) var(--l-bloom-near), transparent),
+    0 0 calc(var(--l-bloom-radius) * 3) color-mix(in srgb, var(--l-accent) var(--l-bloom-far), transparent);
+}
+
+:root:is([data-bloom='soft'], [data-bloom='strong']) [style*='background-color: var(--l-needs)'] {
+  box-shadow:
+    0 0 var(--l-bloom-radius) color-mix(in srgb, var(--l-needs) var(--l-bloom-near), transparent),
+    0 0 calc(var(--l-bloom-radius) * 3) color-mix(in srgb, var(--l-needs) var(--l-bloom-far), transparent);
+}
+
+:root:is([data-bloom='soft'], [data-bloom='strong']) [style*='background-color: var(--l-bad)'] {
+  box-shadow:
+    0 0 var(--l-bloom-radius) color-mix(in srgb, var(--l-bad) var(--l-bloom-near), transparent),
+    0 0 calc(var(--l-bloom-radius) * 3) color-mix(in srgb, var(--l-bad) var(--l-bloom-far), transparent);
+}
+
+/* Headings and accent-colored text glow in their own color. */
+:root:is([data-bloom='soft'], [data-bloom='strong']) :is(h1, h2) {
+  text-shadow: 0 0 calc(var(--l-bloom-radius) * 1.5) color-mix(in srgb, currentColor var(--l-bloom-text), transparent);
+}
+
+/* Match the text color only (not border-color/background-color, which share the substring). */
+:root:is([data-bloom='soft'], [data-bloom='strong'])
+  :is([style^='color: var(--l-accent)'], [style*='; color: var(--l-accent)'], [style^='color: var(--l-needs)'], [style*='; color: var(--l-needs)']) {
+  text-shadow: 0 0 var(--l-bloom-radius) color-mix(in srgb, currentColor var(--l-bloom-near), transparent);
+}
+
+/* Design Studio Bloom buttons: each sample glows at its own level, whatever is saved.
+   Samples use classes, not inline colors, so the page-wide rules above never touch them. */
+.lanes-bloom-sample .lanes-bloom-pill {
+  background-color: var(--l-accent);
+}
+
+.lanes-bloom-sample .lanes-bloom-dot {
+  background-color: var(--l-needs);
+}
+
+.lanes-bloom-sample .lanes-bloom-text {
+  color: var(--l-accent);
+}
+
+.lanes-bloom-sample:is([data-bloom='soft'], [data-bloom='strong']) .lanes-bloom-pill {
+  box-shadow:
+    0 0 var(--l-bloom-radius) color-mix(in srgb, var(--l-accent) var(--l-bloom-near), transparent),
+    0 0 calc(var(--l-bloom-radius) * 3) color-mix(in srgb, var(--l-accent) var(--l-bloom-far), transparent);
+}
+
+.lanes-bloom-sample:is([data-bloom='soft'], [data-bloom='strong']) .lanes-bloom-dot {
+  box-shadow:
+    0 0 var(--l-bloom-radius) color-mix(in srgb, var(--l-needs) var(--l-bloom-near), transparent),
+    0 0 calc(var(--l-bloom-radius) * 3) color-mix(in srgb, var(--l-needs) var(--l-bloom-far), transparent);
+}
+
+.lanes-bloom-sample:is([data-bloom='soft'], [data-bloom='strong']) .lanes-bloom-text {
+  text-shadow: 0 0 var(--l-bloom-radius) color-mix(in srgb, currentColor var(--l-bloom-near), transparent);
+}

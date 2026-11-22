@@ -1,0 +1,26 @@
+node_modules
+dist
+*.log
+.DS_Store
+.env*
+data
+tests/e2e/shots
+tests/e2e/.results
+tests/e2e/*-snapshots
+
+/desktop/target
+/desktop/gen
+src/server/agent-shell/.zsh_history
+src/server/agent-shell/.zsh_sessions
+
+# Blocks playground scratch folder (see src/web/playground/README.md)
+src/web/playground/src/
+shots/
+
+# Written by `cn build` at the start of every build (see vite.config.ts)
+src/web/lib/cn-tables.js
+
+# Local editor/agent state
+.antigravity/
+.aistudio/
+
